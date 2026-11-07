@@ -17,6 +17,7 @@ from studio_server.config import ServerSettings
 from studio_server.core.errors import install_error_handlers
 from studio_server.core.logs import configure_logging, install_request_logging
 from studio_server.core.runtime import ServerRuntime
+from studio_server.core.webui import install_web_ui
 from studio_server.features import FEATURES
 
 log = logging.getLogger("studio_server")
@@ -58,4 +59,5 @@ def create_app(
     install_request_logging(app)
     for feature in FEATURES:
         app.include_router(feature.router)
+    install_web_ui(app, settings.web_dir)  # last: its catch-all must not shadow /api
     return app

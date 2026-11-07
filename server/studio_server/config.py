@@ -13,6 +13,8 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 DEFAULT_DATA_DIR = "~/.studio"
+DEFAULT_WEB_DIR = Path(__file__).resolve().parents[2] / "web" / "dist"
+"""The built web UI (``pnpm -C web build``), served at ``/`` (PRD section 9)."""
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
@@ -42,6 +44,8 @@ class ServerSettings:
     """How often the poller refreshes the cached worker check behind ``/api/health``."""
     retry_base_s: float = 0.5
     """First backoff delay for retried worker calls; doubles each retry (tests use 0)."""
+    web_dir: Path | None = DEFAULT_WEB_DIR
+    """Folder of the built web UI; ``None`` serves no UI. Not an environment variable."""
 
     def __post_init__(self) -> None:
         if not 0 < self.port < 65536:

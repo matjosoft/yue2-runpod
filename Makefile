@@ -14,6 +14,7 @@ help: ## List targets
 setup: ## Install Python and Node dependencies
 	uv sync --locked
 	$(PNPM) install --frozen-lockfile
+	$(PNPM) exec playwright install chromium
 
 dev: ## Run the server with reload and the Vite dev server
 	$(MAKE) -j2 dev-server dev-web
@@ -25,12 +26,14 @@ dev-server:
 dev-web:
 	$(PNPM) dev
 
-run-fake: ## Run a fake-engine worker and the server together
+run-fake: ## Run a fake-engine worker and the server (with the built UI) together
+	$(PNPM) build
 	scripts/run_fake.sh
 
-test: ## Python tests, web tests, and the contracts-up-to-date check
+test: ## Python tests, web tests (Vitest and Playwright), and the contracts-up-to-date check
 	$(UV) pytest
 	$(PNPM) test
+	$(PNPM) test:e2e
 	scripts/gen_api_types.sh --check
 
 typecheck: ## mypy (strict) and tsc --noEmit

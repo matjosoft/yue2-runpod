@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Run a fake-engine worker and the local server together (make run-fake).
 #
-# The worker gets a fresh random API key and a temporary jobs folder; the server is
-# pointed at it through STUDIO_WORKER_URL and STUDIO_WORKER_TOKEN. Unless
+# The worker gets a fresh random API key (unless WORKER_API_KEY is set, as the Playwright
+# test does) and a temporary jobs folder; the server is pointed at it through
+# STUDIO_WORKER_URL and STUDIO_WORKER_TOKEN. The server also serves the built web UI
+# (web/dist; make run-fake builds it first) at http://127.0.0.1:$STUDIO_PORT. Unless
 # STUDIO_DATA_DIR is set, the server's library also lives in a temporary folder, so each
 # run starts empty. Ctrl+C stops both and removes the temporary folders.
 #
+#   WORKER_API_KEY  worker token (default: random)
 #   WORKER_PORT   worker port (default 8000)
 #   STUDIO_PORT   server port (default 8080)
 #   FAKE_STAGE_DELAY_S, FAKE_LOAD_DELAY_S   slow the fake model down (default 0.5 and 0)
@@ -14,7 +17,7 @@ cd "$(dirname "$0")/.."
 
 worker_port="${WORKER_PORT:-8000}"
 tmp="$(mktemp -d)"
-key="$(uv run --locked python -c 'import secrets; print(secrets.token_hex(32))')"
+key="${WORKER_API_KEY:-$(uv run --locked python -c 'import secrets; print(secrets.token_hex(32))')}"
 
 cleanup() {
   trap - EXIT INT TERM

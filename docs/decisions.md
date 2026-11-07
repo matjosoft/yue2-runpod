@@ -155,3 +155,54 @@ Tooling:
 - **mypy runs twice** (`make typecheck`): once with the configured files, then once on `server/tests`. Both test folders have a `conftest.py`, and mypy cannot hold two top-level modules with the same name.
 - **Server tests use the real worker app with `FakeEngine`, in-process.** Server test helpers live in `server/tests/server_support.py`, and `server/tests` is on pytest's `pythonpath`. `SwitchableTransport` sits between server and worker to simulate an outage, corrupt downloads and count parallel downloads. AT-5 stops the server through its lifespan (a clean stop, not a `kill -9`), then starts a new app on the same data dir.
 - **`python -m studio_server`** runs the server on `STUDIO_HOST`:`STUDIO_PORT`. `make run-fake` uses it.
+
+## M3 (2026-11-07)
+
+Web app structure:
+
+- **`operationViews` has this shape** (the PRD names it but gives no type):
+  - `Record<string, { Summary, Result }>`; both components take `{ generation }`.
+  - `Summary` is one line of operation-specific content in a library row (for a song, the first 80 characters of the style). `Result` is the body of a succeeded generation.
+  - `viewFor(op)` returns a generic fallback (a file list) for an operation with no view.
+  - The generic parts of the result card (queued, running, downloading, failed, canceled, Reuse, Retry) and of the library row (title, status, time, player, Reuse, Delete) are shared. The player is picked by artifact role `primary_audio`, never by file name.
+- **Modules are hidden only when capabilities have loaded and lack the operation.** While `/api/capabilities` is loading or failing (first run, no worker yet), every module shows. Otherwise Create would disappear exactly when the user needs Settings.
+- **Settings is a route (`/settings`) shown as a modal dialog**, so the `FeatureModule` shape stays as the PRD has it. The status pill links to it.
+- **Test connection saves first, then checks**, because `POST /api/worker/check` tests the saved settings. Its result also updates the pill at once.
+- **Save also re-checks the worker** (`POST /api/worker/check`) in the background, and the pill shows the result. The server does not refresh its cached check when settings change, so without this the pill would show the old state for up to about 15 s.
+- **Save and Test stay disabled until the saved settings have loaded.** Until then the URL field is not known, and sending it blank would clear the saved URL.
+- **A failed poll is shown.** The pill turns red ("App server unreachable") as soon as a health poll fails, even after earlier good answers. The result card and the library keep their last state and show the error above it.
+- **The "http:// only for localhost" rule is enforced in the UI only.** Allowed hosts are `localhost`, `127.0.0.1` and `[::1]`. The server's `SettingsUpdate` still accepts any `http(s)://` URL; tightening it would be a contract change.
+- **Error messages.**
+  - `components/errorMessages.ts` is typed `Record<ErrorCode | ClientErrorCode | "server_unreachable", string>`, so `tsc` fails when a contract code lacks a message. A test also checks the enums in `contracts/openapi/server.json`.
+  - The PRD §9 table has no text for `not_found`, `conflict` or `internal`, so these were added: "This could not be found. It may have been deleted.", "That isn't possible while the generation is in its current state." and "Something unexpected went wrong. Try again."
+  - `server_unreachable` is UI-only, for when the local server itself does not answer.
+- **Form and request mapping.**
+  - Blank seed and blank CFG scale are left out of the request: the server fills a random seed, and the model default applies for CFG.
+  - The UI checks only that style and lyrics are non-empty, and that seed and CFG scale are numbers. Lengths and ranges are the worker's rules, and its 422 is shown inline per field.
+  - A blank title is left out, so the server's `Untitled <date time>` applies.
+- **Drafts and Reuse.**
+  - The draft (`localStorage`) is operation-neutral (`{title, request}`) and keeps raw text, so a half-typed number survives a reload.
+  - "Reuse settings" writes the stored request into the draft and opens Create, with the title left blank. Retry sends the stored title, operation and request unchanged, so the seed is the same too.
+- **The elapsed timer counts from `created_at`.** The generation object has no start time, so the timer includes queue time and survives a reload.
+- **Library rows that are not terminal have Delete disabled**, because the server answers 409 until cancel exists (M5). The list polls every 1.5 s while any row is in progress.
+- **The pill polls every 10 s, as U-5 says; the worst case is about 15 s.** The server refreshes its check every 5 s (M2), so a state change can take up to about 15 s to show, not 10 s as the M2 note said. Saving settings, or testing the connection, updates the pill at once. A change on the worker side, such as the pod stopping, still takes up to about 15 s to show.
+
+Server and tooling:
+
+- **The server serves the built UI** (PRD §9: "served by the local server in normal use"; no milestone assigned it).
+  - `core/webui.py` adds a `GET /{path}` catch-all after the API routers. It returns a file from `web/dist` if one exists there, and otherwise `index.html`, so deep links work.
+  - `/api/...` keeps its JSON 404. Paths that resolve outside the build folder are never served.
+  - If the UI is not built, the route answers 404 with a hint.
+  - The route is excluded from OpenAPI, so the contract is unchanged.
+  - `ServerSettings.web_dir` (default `<repo>/web/dist`) is a settings field, not an environment variable.
+  - A side effect: an unknown non-GET path now gets 405 instead of 404, still with the envelope.
+- **`make run-fake` builds the UI first.** `scripts/run_fake.sh` uses `WORKER_API_KEY` from the environment when it is set, so the end-to-end test knows the token it types into Settings.
+- **Playwright.**
+  - `web/e2e/app.spec.ts` runs against its own `run-fake` stack on ports 18000 and 18080, with `FAKE_STAGE_DELAY_S=2` (about 10 s per song).
+  - AT-1 follows the current stage until the song is done and requires it to move only forward, through at least 3 stages. It reloads mid-run and requires the stage list to come back.
+  - It uses Chromium only, and `make test` runs it.
+  - The browser cannot report a file's native sample rate, so "48 kHz stereo" is checked by reading the FLAC STREAMINFO header. "Plays" is checked in the browser (`duration > 0`, `currentTime > 0`, no media error).
+- **Dependencies.**
+  - React Router 7, TanStack Query 5, openapi-fetch 0.17, Tailwind CSS 4 (Vite plugin) and Playwright 1.65.
+  - `@testing-library/jest-dom` is held at 6, because 7 requires Node 22 and the project supports Node 20.19.
+  - The client calls `globalThis.fetch` on every request, so Vitest can stub it, and query `AbortSignal`s are not passed to fetch (jsdom and Node disagree on the type).

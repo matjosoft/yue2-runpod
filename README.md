@@ -2,7 +2,7 @@
 
 Studio turns a style description and lyrics into a song. YuE2-3B generates it on a rented RunPod GPU, and you control it from a web app on your own machine. The specification is [docs/PRD.md](docs/PRD.md).
 
-> **Status: milestone M2 (server core).** The worker API and the local server API run end to end with a fake engine that needs no GPU. The web app (M3) and the real YuE2 engine (M4) are not built yet.
+> **Status: milestone M3 (web app).** The web app, the local server and the worker run end to end with a fake engine that needs no GPU. The real YuE2 engine and the worker image (M4) are not built yet.
 
 ## Layout
 
@@ -26,12 +26,12 @@ Studio turns a style description and lyrics into a song. YuE2-3B generates it on
 Run these from the repository root.
 
 ```bash
-make setup      # install Python and Node dependencies
+make setup      # install Python and Node dependencies, and Playwright's Chromium
 make lint       # ruff, mypy (strict), tsc --noEmit, ESLint
-make test       # pytest, Vitest, and a check that generated contracts are up to date
+make test       # pytest, Vitest, Playwright, and a check that generated contracts are up to date
 make contracts  # regenerate contracts/openapi/*.json and web/src/api/schema.d.ts
 make dev        # server on http://127.0.0.1:8080 (reload) + Vite on http://127.0.0.1:5173
-make run-fake   # fake-engine worker on :8000 + server on :8080, wired together
+make run-fake   # builds the web app; fake-engine worker on :8000 + server and UI on :8080
 ```
 
 `make build-worker` is a placeholder until milestone M4.
@@ -54,9 +54,21 @@ curl -H "Authorization: Bearer $WORKER_API_KEY" -H 'Content-Type: application/js
 
 `FAKE_LOAD_DELAY_S` and `FAKE_STAGE_DELAY_S` slow the fake model down, which is useful for seeing the `loading` state and stage progress. The worker's environment variables are listed in PRD section 8.
 
+## Using the web app with the fake worker
+
+```bash
+make run-fake
+```
+
+Then open <http://127.0.0.1:8080>. The server is already pointed at the fake worker, so the status pill turns green, and Create → Example → Create makes a short test song (a tone, not music). Settings (the pill, or the nav link) is where you enter a real worker's URL and token later.
+
+For UI work, `make dev` runs the server with reload on :8080 and Vite on <http://127.0.0.1:5173>, which proxies `/api` to the server. Point it at a worker in Settings, or run a fake worker on :8000 as shown above.
+
+The end-to-end test (`pnpm -C web test:e2e`, part of `make test`) builds the UI and starts its own `run-fake` stack on ports 18000 and 18080, so it does not clash with a running `make dev` or `make run-fake`. It needs Chromium, which `make setup` installs; on a fresh Linux machine Chromium may also need system libraries (`sudo pnpm -C web exec playwright install-deps chromium`).
+
 ## Running the local server against the fake worker
 
-`make run-fake` starts a fake-engine worker with a fresh random key and the local server already pointed at it. Both use temporary folders, so each run starts with an empty library; set `STUDIO_DATA_DIR` to keep one. Ctrl+C stops both.
+`make run-fake` starts a fake-engine worker with a fresh random key (or `WORKER_API_KEY`, if set) and the local server already pointed at it. Both use temporary folders, so each run starts with an empty library; set `STUDIO_DATA_DIR` to keep one. Ctrl+C stops both.
 
 ```bash
 make run-fake
