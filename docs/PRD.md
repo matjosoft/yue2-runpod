@@ -87,7 +87,7 @@ Every P0 requirement must be met for the MVP; P1 should be met; P2 is optional. 
 | W-8 | Structured errors with stable codes (section 6) | P0 | Every failure path returns the documented envelope |
 | W-9 | Fake engine (`ENGINE=fake`) that emits a short valid 48 kHz stereo FLAC and walks through all stages | P0 | Full test suite runs on a machine with no GPU |
 | W-10 | Cancel: a queued job cancels at once; a running job is cancelled between stages | P1 | Cancelling a running job ends it as `canceled` and discards its output |
-| W-11 | Delete finished job files after `JOB_TTL_HOURS` (default 24) | P1 | An expired job returns 404; running jobs are never deleted |
+| W-11 | Delete finished job files after `JOB_TTL_HOURS` (default 24), counted from when the job finished | P1 | An expired job returns 404 within a minute of expiry; queued and running jobs are never deleted (changed after M5) |
 | W-12 | Report `idle_seconds` in status | P1 | Value resets when a job starts |
 | W-13 | Optional idle auto-stop of the pod | P2 | Design only in MVP; see section 8 |
 
@@ -305,6 +305,8 @@ Generation object:
 
 `status` is `queued`, `running`, `downloading`, `succeeded`, `failed` or `canceled`. `downloading` exists only on the server: the worker job has succeeded but the artifacts are not yet verified locally.
 
+If the worker answers 404 for a job the server still tracks (for example, the job expired under W-11 while the server was off, or the volume was wiped), the generation fails with `not_found` ("The worker no longer has this job") instead of polling forever. Deleting such a generation still works: the remote delete is best effort (added after M5).
+
 ### Rules both sides follow
 
 - Every request is short. Nothing waits for a generation inside one HTTP call, because RunPod's proxy may cut long requests. Progress is by polling (worker every 2 s from the server, server every 1.5 s from the UI); SSE can be added later without changing the job object.
@@ -379,6 +381,7 @@ class SongEngine(Engine, Protocol):            # what song.generate needs
 - Each job lives in `JOBS_DIR/<id>/` with an atomically written `job.json` and an `artifacts/` folder. On startup, any job found `queued` or `running` becomes `failed` with `worker_restarted`.
 - The executor is one dedicated thread. Route handlers never block on the GPU.
 - Cancellation is cooperative: operations check `ctx.cancel_requested()` between stages.
+- **Approved after M5, not yet implemented:** cancellation inside a stage. `SongEngine.plan`, `generate_semantic`, `synthesize` and `generate` gain an optional keyword `cancelled: Callable[[], bool] | None = None`. `song.generate` passes `ctx.cancel_requested`, and `Yue2Engine` passes it to yue2's `cancelled=` and turns yue2's `InterruptedError` into a canceled job. `decode` takes no callback, because yue2 checks once before the VAE stage instead. The change is additive: an engine that ignores the callback still meets W-10. Until it is built, a long `semantic` stage runs to its end before a cancel takes effect.
 
 ### Local server design
 
@@ -528,13 +531,14 @@ The result card has one state at a time:
 | --- | --- |
 | Idle | A placeholder: "Your song will appear here" |
 | Submitting | A spinner |
-| Queued | "Waiting for the GPU" |
-| Running | The `stages` list with the current stage marked, plus an elapsed timer; no promised duration |
+| Queued | "Waiting for the GPU", plus a Cancel button |
+| Running | The `stages` list with the current stage marked, plus an elapsed timer; no promised duration. A Cancel button |
 | Downloading | "Fetching your song" |
 | Succeeded | Audio player, Download FLAC, the other files under "Files", Reuse settings |
 | Failed | A plain-language message, a Details toggle (code and message), Retry (new generation, same request) |
 | Canceled | A short note |
 
+- Cancel (added after M5) shows only while the generation is queued or running. A running job stops at the next stage boundary, so after a successful request the button reads "Canceling…" until the status turns `canceled`. A refused cancel shows the plain-language message.
 - The form draft is kept in `localStorage` and restored on load. This is a convenience only; the library is the record.
 - The active generation id lives in the URL (`/create?gen=<id>`), so a reload resumes progress.
 - On any error the form keeps what the user typed.
@@ -560,6 +564,7 @@ And never feel alone
 ### Library view
 
 - Newest first. Each row: title, first 80 characters of the style, status chip, created time, inline play, Reuse settings, Delete (with confirmation).
+- A queued or running row also has Cancel. Delete stays disabled until the generation has finished: cancel first, then delete.
 - A row opens `/library/:id`: the stored request (seed included), the artifacts with sizes, and timings.
 - Empty state: a short line and a link to Create.
 - Rows render through the `operationViews` registry (section 7).

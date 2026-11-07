@@ -240,7 +240,7 @@ Server and tooling:
 
 Owner decisions:
 
-- **The web app has a Cancel button.** PRD §9's result-card table has none; the owner asked for one. It shows for `queued` and `running` only, on the result card ("Cancel generation") and on in-progress library rows. After a successful request it reads "Canceling…" until the polled status turns `canceled`. A refused cancel shows the plain-language error with its Details toggle. **Suggested PRD change:** add "Queued/Running: Cancel button" to the §9 result-card table.
+- **The web app has a Cancel button.** PRD §9's result-card table has none; the owner asked for one. It shows for `queued` and `running` only, on the result card ("Cancel generation") and on in-progress library rows. After a successful request it reads "Canceling…" until the polled status turns `canceled`. A refused cancel shows the plain-language error with its Details toggle. **PRD updated (owner-approved, after M5):** the §9 result-card table and the library view now list Cancel.
 - **Deleting an in-progress generation still returns 409 `conflict`.** Cancel first, then delete. In the library, Delete stays disabled on in-progress rows, and Cancel sits beside it.
 
 API details the PRD leaves open:
@@ -256,13 +256,13 @@ API details the PRD leaves open:
   - The poller re-reads the record before it writes, both after a worker answer and before it fails a generation, and leaves it alone if it has become terminal.
   - The cancel handler mirrors the worker job only while the record is still `queued` or `running`, so it never writes an older state over a newer one.
   - If a cancel lands while a submit is in flight (in `POST /api/generations` or a poller resubmit), the submit then cancels the job it created. If the record was also deleted meanwhile, the job is canceled as well, and the create request answers 404.
-- **A worker 404 while polling fails the generation with `not_found`** ("The worker no longer has this job"), as in M2. This now also covers jobs the TTL sweep removed while the server was off. **Suggested PRD change:** list this in §6.
+- **A worker 404 while polling fails the generation with `not_found`** ("The worker no longer has this job"), as in M2. This now also covers jobs the TTL sweep removed while the server was off. **PRD updated (owner-approved, after M5):** §6 now states this rule.
 
 Worker:
 
-- **The TTL sweep runs once at startup (after loading jobs) and then every 60 s** (`SWEEP_INTERVAL_S` in `main.py`), off the event loop. An expired job can stay visible for up to 60 s after its TTL. **Suggested PRD wording for W-11:** "within a minute of expiry".
+- **The TTL sweep runs once at startup (after loading jobs) and then every 60 s** (`SWEEP_INTERVAL_S` in `main.py`), off the event loop. An expired job can stay visible for up to 60 s after its TTL. **PRD updated (owner-approved, after M5):** W-11 now says "within a minute of expiry", counted from when the job finished.
 - **Expiry counts from `finished_at`.** Jobs marked `worker_restarted` at startup get `finished_at` = the restart time, so they live a full TTL from then. Removing an expired job also frees its `client_request_id`.
-- **Cancel inside a stage is still not wired** (see M4). The fixed `SongEngine` interface cannot pass yue2's `cancelled=` callback, so a long `semantic` stage on the real model runs to its end before the job stops. **Suggested PRD change** (owner approval needed): an optional cancel callable on the staged engine methods.
+- **Cancel inside a stage is still not wired** (see M4). The fixed `SongEngine` interface cannot pass yue2's `cancelled=` callback, so a long `semantic` stage on the real model runs to its end before the job stops. **PRD updated (owner-approved, after M5):** §7 now lists an optional `cancelled` keyword on `plan`, `generate_semantic`, `synthesize` and `generate` as an approved extension. It is **not implemented yet**; the code still matches the M5 behaviour.
 - **A cancel that arrives after the executor took the job off the queue, but before it marked it `running`,** wins: the executor re-checks the state under the same lock and skips the job without logging an error.
 
 Server:
