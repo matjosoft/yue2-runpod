@@ -2,7 +2,9 @@
 
 Studio turns a style description and lyrics into a song. YuE2-3B generates it on a rented RunPod GPU, and you control it from a web app on your own machine. The specification is [docs/PRD.md](docs/PRD.md).
 
-> **Status: milestone M4 (real engine and image).** The web app, the local server and the worker run end to end with a fake engine that needs no GPU. The real YuE2 engine, the worker image and the smoke script exist, but **no GPU run has happened yet**: real generation is verified by the owner in M6, following [docs/runpod.md](docs/runpod.md).
+> **Status: milestone M5 (hardening and extras).** The web app, the local server and the worker run end to end with a fake engine that needs no GPU, including cancel, cleanup of old worker jobs and retries. The real YuE2 engine, the worker image and the smoke script exist, but **no GPU run has happened yet**: real generation is verified by the owner in M6, following [docs/runpod.md](docs/runpod.md).
+
+How it fits together: [docs/architecture.md](docs/architecture.md). How to add an operation, a feature or a backend: [docs/adding-features.md](docs/adding-features.md).
 
 ## Layout
 
@@ -13,7 +15,7 @@ Studio turns a style description and lyrics into a song. YuE2-3B generates it on
 | `server/` | Local server (`studio_server`): settings, library and worker client |
 | `web/` | React app (Vite, strict TypeScript) |
 | `scripts/` | Contract generation, the worker image build (`build_worker.sh`) and the GPU smoke test (`smoke_worker.py`) |
-| `docs/` | PRD, YuE2 API notes, decisions and the RunPod runbook (`runpod.md`) |
+| `docs/` | PRD, architecture, adding features, YuE2 API notes, decisions, milestone plans (`plans/`) and the RunPod runbook (`runpod.md`) |
 | `NOTICE.md` | The model, its authors and the CC BY-NC 4.0 weight licence: personal use only |
 
 ## Prerequisites
@@ -39,7 +41,7 @@ make run-fake   # builds the web app; fake-engine worker on :8000 + server and U
 
 ## Running the worker with the fake engine
 
-The fake engine walks through every stage and writes a short 48 kHz stereo FLAC, so the whole worker API can be tried without a GPU. `ENGINE=yue2` (the default) arrives in M4.
+The fake engine walks through every stage and writes a short 48 kHz stereo FLAC, so the whole worker API can be tried without a GPU. `ENGINE=yue2` (the default) needs the worker image and a GPU.
 
 ```bash
 export WORKER_API_KEY=$(openssl rand -hex 32)   # at least 32 characters

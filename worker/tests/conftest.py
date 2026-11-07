@@ -27,12 +27,17 @@ def start_worker(jobs_dir: Path) -> StartWorker:
         engine: FakeEngine | None = None,
         *,
         max_queue: int = 4,
+        job_ttl_hours: float = 24.0,
         wait_ready: bool = True,
         raise_app_exceptions: bool = True,
     ) -> AsyncIterator[Worker]:
         engine = engine or FakeEngine()
         settings = WorkerSettings(
-            api_key=TOKEN, engine="fake", jobs_dir=jobs_dir, max_queue=max_queue
+            api_key=TOKEN,
+            engine="fake",
+            jobs_dir=jobs_dir,
+            max_queue=max_queue,
+            job_ttl_hours=job_ttl_hours,
         )
         app = create_app(settings, engine)
         async with app.router.lifespan_context(app):

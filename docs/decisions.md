@@ -235,3 +235,40 @@ Server and tooling:
   - An optional `--min-audio-seconds` (default 10) lets it run against a fake worker. Defaults keep the PRD behaviour.
   - `scripts/` is on pytest's `pythonpath` so tests can import it.
 - **Licence wording.** The pinned `LICENSE` and model card give plain CC BY-NC 4.0. They contain no extra permission for creators to monetise outputs, although PRD §11 and the M3 About note mention one. `NOTICE.md` states what the licence file says and flags the difference for the owner.
+
+## M5 (2026-11-07)
+
+Owner decisions:
+
+- **The web app has a Cancel button.** PRD §9's result-card table has none; the owner asked for one. It shows for `queued` and `running` only, on the result card ("Cancel generation") and on in-progress library rows. After a successful request it reads "Canceling…" until the polled status turns `canceled`. A refused cancel shows the plain-language error with its Details toggle. **Suggested PRD change:** add "Queued/Running: Cancel button" to the §9 result-card table.
+- **Deleting an in-progress generation still returns 409 `conflict`.** Cancel first, then delete. In the library, Delete stays disabled on in-progress rows, and Cancel sits beside it.
+
+API details the PRD leaves open:
+
+- **Cancel answers 200 with the existing object.** `POST /v1/jobs/{id}/cancel` returns the `Job`; `POST /api/generations/{id}/cancel` returns the `Generation`. Both are additive endpoints with no new fields.
+- **A running job's cancel answer still says `running`.** Cancel is cooperative and takes effect at the next stage boundary (W-10), so clients keep polling until `canceled`. A second cancel is accepted (idempotent). A queued job's answer already says `canceled`.
+- **Cancel is 409 in every other status, including `downloading`.** In `downloading`, the worker job has already succeeded; only the download is left.
+- **How the server maps worker answers to a cancel.**
+  - Worker 404 (the job is gone), or no worker job yet: the record is marked `canceled` locally.
+  - Worker 409 (the job finished a moment ago): 409 `conflict`; the poller then mirrors the real outcome.
+  - Worker unreachable: the error is relayed (502 `worker_unreachable`) and the status does not change.
+- **Nothing overwrites a cancel that lands while the server waits for the worker.**
+  - The poller re-reads the record before it writes, both after a worker answer and before it fails a generation, and leaves it alone if it has become terminal.
+  - The cancel handler mirrors the worker job only while the record is still `queued` or `running`, so it never writes an older state over a newer one.
+  - If a cancel lands while a submit is in flight (in `POST /api/generations` or a poller resubmit), the submit then cancels the job it created. If the record was also deleted meanwhile, the job is canceled as well, and the create request answers 404.
+- **A worker 404 while polling fails the generation with `not_found`** ("The worker no longer has this job"), as in M2. This now also covers jobs the TTL sweep removed while the server was off. **Suggested PRD change:** list this in §6.
+
+Worker:
+
+- **The TTL sweep runs once at startup (after loading jobs) and then every 60 s** (`SWEEP_INTERVAL_S` in `main.py`), off the event loop. An expired job can stay visible for up to 60 s after its TTL. **Suggested PRD wording for W-11:** "within a minute of expiry".
+- **Expiry counts from `finished_at`.** Jobs marked `worker_restarted` at startup get `finished_at` = the restart time, so they live a full TTL from then. Removing an expired job also frees its `client_request_id`.
+- **Cancel inside a stage is still not wired** (see M4). The fixed `SongEngine` interface cannot pass yue2's `cancelled=` callback, so a long `semantic` stage on the real model runs to its end before the job stops. **Suggested PRD change** (owner approval needed): an optional cancel callable on the staged engine methods.
+- **A cancel that arrives after the executor took the job off the queue, but before it marked it `running`,** wins: the executor re-checks the state under the same lock and skips the job without logging an error.
+
+Server:
+
+- **Retries are unchanged from M2**, now with tests for 504, the exact backoff schedule (0.5, 1, 2 s), download retries and cancel. `HttpWorkerBackend` takes an injectable `sleep` for those tests; the `MusicBackend` protocol is unchanged. `Retry-After` is still ignored, and a bare 503 without an envelope maps to `worker_unreachable`, not `not_ready`.
+
+Docs:
+
+- **`docs/architecture.md` and `docs/adding-features.md`** are new. Milestone plans are kept in `docs/plans/`.

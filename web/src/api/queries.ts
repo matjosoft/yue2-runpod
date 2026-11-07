@@ -92,6 +92,20 @@ export function useCreateGeneration() {
   });
 }
 
+/** S-9. The answer is the generation after the cancel: ``canceled`` for a queued one,
+ * still ``running`` for a running one until the worker reaches a stage boundary. */
+export function useCancelGeneration() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      call(api.POST("/api/generations/{id}/cancel", { params: { path: { id } } })),
+    onSuccess: (generation: Generation) => {
+      client.setQueryData(queryKeys.generation(generation.id), generation);
+      void client.invalidateQueries({ queryKey: queryKeys.generations });
+    },
+  });
+}
+
 export function useDeleteGeneration() {
   const client = useQueryClient();
   return useMutation({

@@ -64,7 +64,7 @@ export interface paths {
         /**
          * Delete Generation
          * @description Delete the record and its local files, then, best effort and after the response,
-         *     the worker's job. 409 while the generation is still in progress (cancel is M5).
+         *     the worker's job. 409 while the generation is still in progress: cancel it first.
          */
         delete: operations["delete_generation_api_generations__id__delete"];
         options?: never;
@@ -87,6 +87,29 @@ export interface paths {
         get: operations["get_artifact_api_generations__id__artifacts__name__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/generations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Generation
+         * @description Cancel a ``queued`` or ``running`` generation (S-9). A queued one comes back
+         *     ``canceled``. A running one comes back still ``running`` and ends ``canceled`` at
+         *     the worker's next stage boundary; keep polling. Nothing is downloaded. 409 in any
+         *     other status, including ``downloading``.
+         */
+        post: operations["cancel_generation_api_generations__id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -800,6 +823,82 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": unknown;
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    cancel_generation_api_generations__id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Generation"];
                 };
             };
             /** @description Error envelope */

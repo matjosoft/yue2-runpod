@@ -1,4 +1,4 @@
-"""Model loader and the single executor thread (PRD section 7; W-1, W-3, W-4, W-12).
+"""Model loader and the single executor thread (PRD section 7; W-1, W-3, W-4, W-10, W-12).
 
 Route handlers never block on the engine: they call ``submit`` and read snapshots.
 Only the loader thread (before ``ready``) and the executor thread touch the engine.
@@ -16,7 +16,7 @@ from studio_contracts import Artifact, ErrorCode, ErrorInfo, Job, JobState, Mode
 from studio_worker.engines.base import Engine, EngineOOM
 from studio_worker.jobs.errors import error_info
 from studio_worker.jobs.queue import JobQueue, QueueFullError
-from studio_worker.jobs.store import JobNotFoundError, JobStore, utcnow
+from studio_worker.jobs.store import JobConflictError, JobNotFoundError, JobStore, utcnow
 from studio_worker.operations.base import Operation, OperationCanceled, OperationContext
 
 log = logging.getLogger("studio_worker.jobs")
@@ -82,6 +82,7 @@ class JobExecutor:
         self._submit_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._running: str | None = None
+        self._cancel_events: dict[str, threading.Event] = {}
         self._last_active = clock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -139,6 +140,28 @@ class JobExecutor:
                 return 0
             return max(0, int(self._clock() - self._last_active))
 
+    def cancel(self, job_id: str) -> Job:
+        """Cancel a job (W-10). A queued job ends ``canceled`` at once. A running job is
+        flagged and ends ``canceled`` at its next stage boundary, so the answer still
+        says ``running``; asking again is harmless. Raises ``JobNotFoundError``, or
+        ``JobConflictError`` for a finished job."""
+        with self._state_lock:
+            job = self.store.get(job_id)
+            if job.state.is_terminal:
+                raise JobConflictError(f"job is {job.state.value}; it can no longer be canceled")
+            if job.state is JobState.queued:
+                # The executor may already have taken the id off the queue; ``_run``
+                # re-checks the state under this lock before it starts the job.
+                self.queue.remove(job_id)
+                job = self.store.update(job_id, state=JobState.canceled, finished_at=utcnow())
+                log.info("job canceled while queued", extra={"job_id": job_id})
+                return job
+            event = self._cancel_events.get(job_id)
+            if event is not None:
+                event.set()
+        log.info("job cancel requested", extra={"job_id": job_id})
+        return job
+
     # --- the executor thread ----------------------------------------------------------
 
     def _loop(self) -> None:
@@ -154,6 +177,7 @@ class JobExecutor:
             finally:
                 with self._state_lock:
                     self._running = None
+                    self._cancel_events.pop(job_id, None)
                     self._last_active = self._clock()
 
     def _run(self, job_id: str) -> None:
@@ -164,25 +188,31 @@ class JobExecutor:
         if job.state is not JobState.queued:
             return
         operation = self.lookup(job.operation)
-        if operation is None:  # registry changed since submit
-            self._finish(
-                job_id,
-                JobState.failed,
-                error=error_info(
-                    ErrorCode.internal, f"Operation {job.operation!r} is no longer registered"
-                ),
-            )
-            return
-        params = operation.params_model.model_validate(job.params)
+        params = None if operation is None else operation.params_model.model_validate(job.params)
 
-        with self._state_lock:
-            self._running = job_id
-            self._last_active = self._clock()
+        cancel_event = threading.Event()
         started = utcnow()
         timings: dict[str, float] = {
             "queue_s": round((started - job.created_at).total_seconds(), 3)
         }
-        self.store.update(job_id, state=JobState.running, started_at=started, timings=timings)
+        # Re-check under the lock that ``cancel`` takes: a cancel that arrived after the
+        # id left the queue has already finished the job, and that is not an error.
+        with self._state_lock:
+            if self.store.get(job_id).state is not JobState.queued:
+                return
+            if operation is None or params is None:  # registry changed since submit
+                self._finish(
+                    job_id,
+                    JobState.failed,
+                    error=error_info(
+                        ErrorCode.internal, f"Operation {job.operation!r} is no longer registered"
+                    ),
+                )
+                return
+            self._running = job_id
+            self._cancel_events[job_id] = cancel_event
+            self._last_active = self._clock()
+            self.store.update(job_id, state=JobState.running, started_at=started, timings=timings)
         log.info("job running", extra={"job_id": job_id})
 
         run_start = time.monotonic()
@@ -214,6 +244,7 @@ class JobExecutor:
             on_stage=on_stage,
             on_artifact=artifacts.append,
             on_resolved=on_resolved,
+            cancel_event=cancel_event,
         )
         try:
             operation.run(ctx, params)

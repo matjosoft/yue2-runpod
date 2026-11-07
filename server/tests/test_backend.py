@@ -204,3 +204,108 @@ def test_factory_maps_kind_to_backend() -> None:
 
 def test_backend_config_hides_token() -> None:
     assert TOKEN not in repr(BackendConfig(kind="http_worker", url=WORKER_URL, token=TOKEN))
+
+
+# --- retry hardening (M5) ---------------------------------------------------------------
+
+
+class Sleeps:
+    """An injected ``sleep`` that records each backoff instead of waiting."""
+
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    async def __call__(self, delay: float) -> None:
+        self.delays.append(delay)
+
+
+def scripted(*answers: httpx.Response | type[Exception]) -> Any:
+    """A handler that gives ``answers`` in order, then 200s with the last body."""
+    queue = list(answers)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(answer, type):
+            raise answer("scripted failure", request=request)  # type: ignore[call-arg]
+        return answer
+
+    return handler
+
+
+def sleepy_backend(transport: httpx.AsyncBaseTransport, sleeps: Sleeps) -> HttpWorkerBackend:
+    return HttpWorkerBackend(WORKER_URL, TOKEN, transport=transport, sleep=sleeps)
+
+
+async def test_504_is_retried_with_the_backoff_schedule() -> None:
+    sleeps = Sleeps()
+    transport, seen = counting(lambda r: httpx.Response(504, text="gateway timeout"))
+    backend = sleepy_backend(transport, sleeps)
+    with pytest.raises(BackendError) as err:
+        await backend.status()
+    assert (err.value.code, err.value.http_status) == ("worker_unreachable", 504)
+    assert len(seen) == 4
+    assert sleeps.delays == [0.5, 1.0, 2.0]
+    await backend.aclose()
+
+
+async def test_other_4xx_are_never_retried() -> None:
+    sleeps = Sleeps()
+    for status, code in [(401, "unauthorized"), (404, "not_found"), (409, "conflict")]:
+        transport, seen = counting(lambda r, s=status, c=code: envelope(c, s))
+        backend = sleepy_backend(transport, sleeps)
+        with pytest.raises(BackendError) as err:
+            await backend.cancel(JobRef("job_X"))
+        assert err.value.code == code and len(seen) == 1
+        await backend.aclose()
+    assert sleeps.delays == []
+
+
+async def test_cancel_is_retried_on_503() -> None:
+    sleeps = Sleeps()
+    ok = httpx.Response(200, json={})
+    transport, seen = counting(scripted(envelope("not_ready", 503), ok))
+    backend = sleepy_backend(transport, sleeps)
+    await backend.cancel(JobRef("job_X"))
+    assert [r.url.path for r in seen] == ["/v1/jobs/job_X/cancel"] * 2
+    assert sleeps.delays == [0.5]
+    await backend.aclose()
+
+
+@pytest.mark.parametrize(
+    "first",
+    [httpx.Response(502, text="bad gateway"), httpx.ReadError],
+    ids=["502", "transport-error"],
+)
+async def test_download_retries_then_succeeds(
+    first: httpx.Response | type[Exception], tmp_path: Path
+) -> None:
+    sleeps = Sleeps()
+    transport, seen = counting(scripted(first, httpx.Response(200, content=b"flac-bytes")))
+    backend = sleepy_backend(transport, sleeps)
+    dest = tmp_path / "audio.flac"
+    await backend.download_artifact(JobRef("job_X"), "audio.flac", dest)
+    assert dest.read_bytes() == b"flac-bytes"
+    assert len(seen) == 2 and sleeps.delays == [0.5]
+    await backend.aclose()
+
+
+async def test_download_gives_up_after_three_retries(tmp_path: Path) -> None:
+    sleeps = Sleeps()
+    transport, seen = counting(scripted(httpx.ConnectError))
+    backend = sleepy_backend(transport, sleeps)
+    with pytest.raises(BackendError) as err:
+        await backend.download_artifact(JobRef("job_X"), "audio.flac", tmp_path / "a")
+    assert err.value.code == "worker_unreachable"
+    assert len(seen) == 4 and sleeps.delays == [0.5, 1.0, 2.0]
+    await backend.aclose()
+
+
+async def test_download_404_is_not_retried(tmp_path: Path) -> None:
+    sleeps = Sleeps()
+    transport, seen = counting(lambda r: envelope("not_found", 404))
+    backend = sleepy_backend(transport, sleeps)
+    with pytest.raises(BackendError) as err:
+        await backend.download_artifact(JobRef("job_X"), "audio.flac", tmp_path / "a")
+    assert err.value.code == "not_found"
+    assert len(seen) == 1 and sleeps.delays == []
+    await backend.aclose()

@@ -66,8 +66,9 @@ async def test_single_call_engine_reports_two_stages(start_worker: StartWorker) 
 
 
 async def test_a_new_operation_needs_no_core_change(worker: Worker) -> None:
-    """W-7 (and the start of AT-10, which M5 completes): a test-only operation shows up
-    in capabilities and runs through submit, status and artifact download."""
+    """W-7 and AT-10, worker side: a test-only operation shows up in capabilities and
+    runs through submit, status and artifact download. The server side of AT-10 is in
+    server/tests/test_acceptance.py."""
     with registered(Echo):
         caps = (await worker.client.get("/v1/capabilities")).json()
         names = [o["name"] for o in caps["operations"]]

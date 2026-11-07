@@ -1,15 +1,19 @@
-"""Job routes: W-2, W-3, W-4, plus AT-6, AT-8 and AT-11."""
+"""Job routes: W-2, W-3, W-4, W-10, W-11, plus AT-6, AT-7, AT-8 and AT-11."""
 
+import asyncio
 import json
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
 from worker_support import StartWorker, Worker, song_params
 
 from studio_contracts import Job
+from studio_worker import main
 from studio_worker.engines.fake import FakeEngine
+from studio_worker.jobs.store import utcnow
 
 
 async def test_submit_returns_202_with_a_queued_job(worker: Worker) -> None:
@@ -198,3 +202,107 @@ async def test_at11_worker_restart_fails_interrupted_jobs(
         # A retry with a new client_request_id is a new job, and it runs.
         retry = (await w.submit()).json()
         await w.wait_for(retry["id"], "succeeded")
+
+
+# --- cancel (W-10, AT-7) ----------------------------------------------------------------
+
+
+async def test_cancel_errors(start_worker: StartWorker) -> None:
+    async with start_worker() as w:
+        response = await w.client.post("/v1/jobs/job_nope/cancel")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "not_found"
+
+        job = (await w.submit()).json()
+        await w.wait_for(job["id"], "succeeded")
+        response = await w.client.post(f"/v1/jobs/{job['id']}/cancel")
+        assert response.status_code == 409
+        error = response.json()["error"]
+        assert error["code"] == "conflict" and error["retryable"] is False
+        assert error["details"] == {"job_id": job["id"]}
+
+        response = await w.client.post(
+            f"/v1/jobs/{job['id']}/cancel", headers={"Authorization": ""}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "unauthorized"
+
+
+async def test_at7_cancel_queued_and_running_jobs(start_worker: StartWorker) -> None:
+    """AT-7 / W-10: a queued job cancels at once; a running job ends ``canceled`` at the
+    next stage boundary, with no output and nothing to download."""
+    hold = threading.Event()
+    async with start_worker(FakeEngine(stage_gate=hold)) as w:
+        running = (await w.submit()).json()
+        await w.wait_for(running["id"], "running", stage="plan")
+        queued = (await w.submit()).json()
+
+        response = await w.client.post(f"/v1/jobs/{queued['id']}/cancel")
+        assert response.status_code == 200
+        body = Job.model_validate(response.json())
+        assert body.state == "canceled" and body.finished_at is not None
+
+        response = await w.client.post(f"/v1/jobs/{running['id']}/cancel")
+        assert response.status_code == 200
+        assert response.json()["state"] == "running"
+        again = await w.client.post(f"/v1/jobs/{running['id']}/cancel")
+        assert again.status_code == 200  # a second cancel is accepted
+
+        hold.set()
+        done = await w.wait_for(running["id"], "canceled")
+        assert done["artifacts"] == [] and done["error"] is None
+        assert w.engine.calls == ["plan"]
+        assert list((w.settings.jobs_dir / running["id"] / "artifacts").iterdir()) == []
+        download = await w.client.get(f"/v1/jobs/{running['id']}/artifacts/audio.flac")
+        assert download.status_code == 404
+        # A canceled job is finished, so it can be deleted.
+        assert (await w.client.delete(f"/v1/jobs/{running['id']}")).status_code == 204
+
+
+# --- TTL cleanup (W-11) -----------------------------------------------------------------
+
+
+async def test_expired_jobs_are_404_and_running_jobs_survive(start_worker: StartWorker) -> None:
+    hold = threading.Event()
+    async with start_worker(FakeEngine(stage_gate=hold)) as w:
+        done = (await w.submit()).json()
+        hold.set()
+        await w.wait_for(done["id"], "succeeded")
+        hold.clear()
+        running = (await w.submit()).json()
+        await w.wait_for(running["id"], "running")
+
+        runtime = w.app.state.runtime
+        assert runtime.sweep_expired(utcnow() + timedelta(hours=23)) == []
+        assert runtime.sweep_expired(utcnow() + timedelta(hours=25)) == [done["id"]]
+
+        for path in (f"/v1/jobs/{done['id']}", f"/v1/jobs/{done['id']}/artifacts/audio.flac"):
+            response = await w.client.get(path)
+            assert response.status_code == 404
+            assert response.json()["error"]["code"] == "not_found"
+        assert not (w.settings.jobs_dir / done["id"]).exists()
+        assert (await w.job(running["id"]))["state"] == "running"
+        hold.set()
+        await w.wait_for(running["id"], "succeeded")
+
+
+async def test_startup_deletes_expired_jobs(start_worker: StartWorker, jobs_dir: Path) -> None:
+    async with start_worker() as w:
+        done = (await w.submit()).json()
+        await w.wait_for(done["id"], "succeeded")
+    assert (jobs_dir / done["id"]).is_dir()
+    async with start_worker(job_ttl_hours=1e-9) as w:
+        assert (await w.client.get(f"/v1/jobs/{done['id']}")).status_code == 404
+    assert not (jobs_dir / done["id"]).exists()
+
+
+async def test_the_sweep_runs_periodically(
+    start_worker: StartWorker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "SWEEP_INTERVAL_S", 0.01)
+    async with start_worker(job_ttl_hours=1e-9) as w:
+        job = (await w.submit()).json()
+        deadline = asyncio.get_running_loop().time() + 10
+        while (await w.client.get(f"/v1/jobs/{job['id']}")).status_code != 404:
+            assert asyncio.get_running_loop().time() < deadline, "job was never swept"
+            await asyncio.sleep(0.01)

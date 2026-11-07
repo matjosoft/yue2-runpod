@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { asUiError, type Generation } from "../../api/client";
 import { useGeneration } from "../../api/queries";
+import { CancelButton } from "../../components/CancelButton";
 import { ElapsedTimer } from "../../components/ElapsedTimer";
 import { ErrorMessage } from "../../components/ErrorMessage";
 import { ReuseButton } from "../../components/ReuseButton";
@@ -20,7 +21,15 @@ function Spinner({ label }: { label: string }) {
 function generationView(generation: Generation, onRetry: (g: Generation) => void): { live: ReactNode; extra?: ReactNode } {
   switch (generation.status) {
     case "queued":
-      return { live: <p>Waiting for the GPU</p>, extra: <ElapsedTimer since={generation.created_at} /> };
+      return {
+        live: <p>Waiting for the GPU</p>,
+        extra: (
+          <>
+            <ElapsedTimer since={generation.created_at} />
+            <CancelButton key={generation.id} generation={generation} />
+          </>
+        ),
+      };
     case "running":
       return {
         live: (
@@ -29,7 +38,12 @@ function generationView(generation: Generation, onRetry: (g: Generation) => void
             <StageList stages={generation.stages} current={generation.stage} />
           </>
         ),
-        extra: <ElapsedTimer since={generation.created_at} />,
+        extra: (
+          <>
+            <ElapsedTimer since={generation.created_at} />
+            <CancelButton key={generation.id} generation={generation} />
+          </>
+        ),
       };
     case "downloading":
       return { live: <p>Fetching your song</p> };

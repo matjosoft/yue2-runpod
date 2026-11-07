@@ -13,7 +13,8 @@ from studio_worker.engines.base import EngineOOM
 from studio_worker.engines.fake import FakeEngine
 from studio_worker.jobs.executor import JobExecutor, NotReadyError
 from studio_worker.jobs.queue import QueueFullError
-from studio_worker.jobs.store import JobStore
+from studio_worker.jobs.store import JobConflictError, JobNotFoundError, JobStore
+from studio_worker.operations.base import Operation
 from studio_worker.operations.registry import get_operation
 from studio_worker.operations.song_generate import SongGenerate
 
@@ -176,3 +177,79 @@ def test_idle_seconds_reset_when_a_job_starts(
     assert executor.idle_seconds() == 0
     clock.now += 12
     assert executor.idle_seconds() == 12
+
+
+# --- cancel (W-10) ----------------------------------------------------------------------
+
+
+def test_cancel_a_queued_job_is_immediate(make_executor: Callable[..., JobExecutor]) -> None:
+    hold = threading.Event()
+    engine = FakeEngine(stage_gate=hold)
+    executor = make_executor(engine)
+    first = submit(executor, "run")
+    wait_until(lambda: executor.running_job_id == first.id)
+    queued = submit(executor, "wait")
+
+    job = executor.cancel(queued.id)
+    assert job.state is JobState.canceled and job.finished_at is not None
+    assert len(executor.queue) == 0
+    hold.set()
+    assert finished(executor, first.id).state is JobState.succeeded
+    wait_until(lambda: executor.running_job_id is None)
+    assert engine.calls.count("plan") == 1  # the canceled job never reached the engine
+    assert executor.store.get(queued.id).state is JobState.canceled
+
+
+def test_cancel_a_running_job_stops_at_the_next_stage(
+    make_executor: Callable[..., JobExecutor],
+) -> None:
+    hold = threading.Event()
+    engine = FakeEngine(stage_gate=hold)
+    executor = make_executor(engine)
+    job = submit(executor, "a")
+    wait_until(lambda: executor.store.get(job.id).stage == "plan")
+
+    answer = executor.cancel(job.id)
+    assert answer.state is JobState.running  # takes effect at the next stage boundary
+    assert executor.cancel(job.id).state is JobState.running  # idempotent
+    hold.set()
+    done = finished(executor, job.id)
+    assert done.state is JobState.canceled
+    assert done.error is None and done.artifacts == []
+    assert engine.calls == ["plan"]
+    assert list(executor.store.artifacts_dir(job.id).iterdir()) == []
+
+
+def test_cancel_a_finished_job_is_a_conflict(make_executor: Callable[..., JobExecutor]) -> None:
+    executor = make_executor()
+    job = finished(executor, submit(executor, "a").id)
+    with pytest.raises(JobConflictError):
+        executor.cancel(job.id)
+    with pytest.raises(JobNotFoundError):
+        executor.cancel("job_nope")
+
+
+def test_cancel_between_pickup_and_start_is_not_an_executor_error(
+    make_executor: Callable[..., JobExecutor], caplog: pytest.LogCaptureFixture
+) -> None:
+    """The executor took the id off the queue but has not marked it running yet."""
+    executor = make_executor()
+    real_lookup = executor.lookup
+    picked = threading.Event()
+    proceed = threading.Event()
+
+    def slow_lookup(name: str) -> Operation | None:
+        picked.set()
+        proceed.wait(5)
+        return real_lookup(name)
+
+    executor.lookup = slow_lookup
+    job = submit(executor, "a")
+    assert picked.wait(5)
+    assert executor.cancel(job.id).state is JobState.canceled
+    proceed.set()
+    wait_until(lambda: executor.running_job_id is None)
+    later = submit(executor, "b")
+    assert finished(executor, later.id).state is JobState.succeeded
+    assert executor.store.get(job.id).state is JobState.canceled
+    assert "executor error" not in caplog.text

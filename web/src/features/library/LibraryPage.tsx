@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { asUiError, isTerminal, type Generation } from "../../api/client";
 import { useDeleteGeneration, useGenerationList } from "../../api/queries";
 import { primaryAudio } from "../../components/artifacts";
+import { CancelButton } from "../../components/CancelButton";
 import { ErrorMessage } from "../../components/ErrorMessage";
 import { formatDateTime } from "../../components/format";
 import { ReuseButton } from "../../components/ReuseButton";
@@ -12,7 +13,7 @@ import { viewFor } from "../../components/operationViews";
 function DeleteControl({ generation }: { generation: Generation }) {
   const [confirming, setConfirming] = useState(false);
   const remove = useDeleteGeneration();
-  // The server refuses to delete a generation in progress (409) until cancel exists (M5).
+  // The server refuses to delete a generation in progress (409): cancel it first.
   const inProgress = !isTerminal(generation.status);
   if (!confirming) {
     return (
@@ -78,6 +79,7 @@ function LibraryRow({ generation }: { generation: Generation }) {
       )}
       <div className="flex flex-wrap gap-2">
         <ReuseButton generation={generation} />
+        <CancelButton generation={generation} label={`Cancel ${generation.title}`} />
         <DeleteControl generation={generation} />
       </div>
     </li>

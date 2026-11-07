@@ -1,7 +1,5 @@
-"""``generations`` feature: create, list, get, delete and artifact serving (S-1, S-4, S-7).
-
-Cancel (S-9) arrives in M5.
-"""
+"""``generations`` feature: create, list, get, cancel, delete and artifact serving
+(S-1, S-4, S-7, S-9)."""
 
 import logging
 import os
@@ -117,6 +115,8 @@ async def create_generation(body: GenerationCreate, rt: Runtime) -> Generation:
         rt.db.delete(gen_id)
         log.info("submit rejected", extra={"generation_id": gen_id, "code": exc.code})
         raise _relay(exc) from None
+    except KeyError:  # canceled and deleted while the submit was in flight
+        raise _not_found(gen_id) from None
     finally:
         rt.link.submitting.discard(gen_id)
     log.info(
@@ -153,6 +153,32 @@ async def get_generation(gen_id: GenId, rt: Runtime) -> Generation:
     return generations.to_api(_get(rt, gen_id))
 
 
+@router.post("/{id}/cancel", response_model=Generation)
+async def cancel_generation(gen_id: GenId, rt: Runtime) -> Generation:
+    """Cancel a ``queued`` or ``running`` generation (S-9). A queued one comes back
+    ``canceled``. A running one comes back still ``running`` and ends ``canceled`` at
+    the worker's next stage boundary; keep polling. Nothing is downloaded. 409 in any
+    other status, including ``downloading``."""
+    rec = _get(rt, gen_id)
+    if rec.status not in generations.CANCELABLE:
+        raise ApiError(
+            ErrorCode.conflict,
+            f"A {rec.status.value} generation cannot be canceled",
+            details={"generation_id": gen_id, "status": rec.status.value},
+        )
+    try:
+        rec = await generations.cancel(rt.link, rt.db, rec)
+    except BackendError as exc:
+        if exc.http_status == 409:  # the worker job finished; the poller catches up
+            raise ApiError.from_info(exc.info, 409) from None
+        raise _relay(exc) from None
+    log.info(
+        "generation cancel requested",
+        extra={"generation_id": gen_id, "status": rec.status.value},
+    )
+    return generations.to_api(rec)
+
+
 async def _delete_remote(backend: MusicBackend, job_id: str) -> None:
     try:
         await backend.delete_job(JobRef(job_id))
@@ -163,7 +189,7 @@ async def _delete_remote(backend: MusicBackend, job_id: str) -> None:
 @router.delete("/{id}", status_code=204, response_class=Response)
 async def delete_generation(gen_id: GenId, rt: Runtime, background: BackgroundTasks) -> Response:
     """Delete the record and its local files, then, best effort and after the response,
-    the worker's job. 409 while the generation is still in progress (cancel is M5)."""
+    the worker's job. 409 while the generation is still in progress: cancel it first."""
     rec = _get(rt, gen_id)
     if not rec.status.is_terminal:
         raise ApiError(

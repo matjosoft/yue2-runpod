@@ -26,10 +26,30 @@ describe("Library (U-4)", () => {
     expect(within(first).getByText("succeeded")).toBeInTheDocument();
     expect(first.querySelector("time")).toHaveAttribute("datetime", "2026-11-07T10:00:00Z");
     expect(first.querySelector("audio")).toHaveAttribute("src", "/api/generations/gen_02/artifacts/audio.flac");
-    // A generation in progress has no player and cannot be deleted yet.
+    // A generation in progress has no player, and must be canceled before it can be deleted.
     const second = rows[1] as HTMLElement;
     expect(second.querySelector("audio")).toBeNull();
     expect(within(second).getByRole("button", { name: "Delete Older" })).toBeDisabled();
+    expect(within(second).getByRole("button", { name: "Cancel Older" })).toBeEnabled();
+    expect(within(first).queryByRole("button", { name: "Cancel Newer" })).not.toBeInTheDocument();
+  });
+
+  test("Cancel on an in-progress row posts and refreshes the list", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations", {
+      body: { items: [makeGeneration({ title: "Busy", status: "queued" })], next_cursor: null },
+    });
+    fake.on("POST", "/api/generations/gen_01TEST/cancel", () => {
+      const canceled = makeGeneration({ title: "Busy", status: "canceled" });
+      fake.on("GET", "/api/generations", { body: { items: [canceled], next_cursor: null } });
+      return { body: canceled };
+    });
+    renderApp("/library");
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel Busy" }));
+    expect(await screen.findByText("canceled")).toBeInTheDocument();
+    expect(fake.callsTo("POST", "/api/generations/gen_01TEST/cancel")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Cancel Busy" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Busy" })).toBeEnabled();
   });
 
   test("a style of 80 characters or fewer is shown whole", async () => {

@@ -129,6 +129,8 @@ class Poller:
             except BackendError as exc:
                 self._on_error(rec, exc, during_submit=True)
                 return
+            if rec.status.is_terminal:  # canceled while the submit was in flight
+                return
         assert rec.worker_job_id is not None
         try:
             view = await self._link.backend().get_job(JobRef(rec.worker_job_id))
@@ -136,6 +138,11 @@ class Poller:
             self._on_error(rec, exc, during_submit=False)
             return
         self._unreachable_since.pop(rec.id, None)
+        # A cancel or delete may have landed while we waited; never overwrite it.
+        current = self._db.get(rec.id)
+        if current is None or current.status.is_terminal:
+            return
+        rec = current
         changes = generations.mirror_changes(rec, view)
         if changes:
             rec = self._db.update(rec.id, **changes)
@@ -180,6 +187,9 @@ class Poller:
 
     def _fail(self, rec: GenerationRecord, info: ServerErrorInfo) -> None:
         self._unreachable_since.pop(rec.id, None)
+        current = self._db.get(rec.id)
+        if current is None or current.status.is_terminal:
+            return  # canceled or deleted while we waited for the worker; keep that
         self._db.update(rec.id, status=GenerationStatus.failed, error=info)
         log.info(
             "generation failed",

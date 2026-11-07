@@ -4,6 +4,8 @@
 tests and the OpenAPI exporter call ``create_app`` with explicit settings and engine.
 """
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -28,6 +30,19 @@ from studio_worker.runtime import WorkerRuntime
 assert _operations
 log = logging.getLogger("studio_worker")
 
+SWEEP_INTERVAL_S = 60.0
+"""How often expired jobs are deleted (W-11). An expired job can stay visible for up to
+this long after its TTL (docs/decisions.md)."""
+
+
+async def _sweep_forever(runtime: WorkerRuntime) -> None:
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_S)
+        try:
+            await asyncio.to_thread(runtime.sweep_expired)
+        except Exception:
+            log.exception("expired-job sweep failed")
+
 
 def create_app(settings: WorkerSettings | None = None, engine: Engine | None = None) -> FastAPI:
     settings = settings or WorkerSettings.from_env()
@@ -42,11 +57,16 @@ def create_app(settings: WorkerSettings | None = None, engine: Engine | None = N
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         store.load()
+        runtime.sweep_expired()
         executor.start()
+        sweeper = asyncio.create_task(_sweep_forever(runtime), name="job-ttl-sweep")
         log.info("worker started", extra={"engine": engine.kind, "version": __version__})
         try:
             yield
         finally:
+            sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper
             executor.stop()
             engine.close()
 

@@ -8,6 +8,7 @@ the ``Authorization`` header and never appears in an error or a log line.
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -95,6 +96,7 @@ class HttpWorkerBackend:
         transport: httpx.AsyncBaseTransport | None = None,
         retry_base_s: float = 0.5,
         max_retries: int = MAX_RETRIES,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
@@ -105,6 +107,7 @@ class HttpWorkerBackend:
         )
         self._retry_base_s = retry_base_s
         self._max_retries = max_retries
+        self._sleep = sleep
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -201,7 +204,7 @@ class HttpWorkerBackend:
     async def _backoff(self, attempt: int) -> None:
         delay = self._retry_base_s * (2**attempt)
         if delay > 0:
-            await asyncio.sleep(delay)
+            await self._sleep(delay)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         for attempt in range(self._max_retries + 1):

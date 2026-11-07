@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -160,3 +161,31 @@ def test_artifact_path_only_from_the_manifest(tmp_path: Path) -> None:
         "text/plain",
     )
     assert store.artifact_path(job.id, "../job.json") is None
+
+
+# --- TTL cleanup (W-11) -----------------------------------------------------------------
+
+
+def test_sweep_removes_only_expired_finished_jobs(tmp_path: Path) -> None:
+    now = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+    clock = {"now": now - timedelta(hours=30)}
+    store = JobStore(tmp_path, clock=lambda: clock["now"])
+    old_done = new_job(store, "old-done")
+    store.update(old_done.id, state=JobState.canceled, finished_at=now - timedelta(hours=24))
+    old_running = new_job(store, "old-running")
+    store.update(old_running.id, state=JobState.running)
+    old_queued = new_job(store, "old-queued")
+    fresh = new_job(store, "fresh")
+    store.update(fresh.id, state=JobState.canceled, finished_at=now - timedelta(hours=23))
+
+    removed = store.sweep_expired(now, timedelta(hours=24))
+
+    assert removed == [old_done.id]
+    assert not (tmp_path / old_done.id).exists()
+    with pytest.raises(JobNotFoundError):
+        store.get(old_done.id)
+    assert store.find_by_client_request_id("old-done") is None  # a new job can reuse it
+    for job in (old_running, old_queued, fresh):
+        assert store.get(job.id).id == job.id
+        assert (tmp_path / job.id).is_dir()
+    assert store.sweep_expired(now, timedelta(hours=24)) == []

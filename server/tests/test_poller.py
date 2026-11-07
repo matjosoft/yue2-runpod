@@ -243,3 +243,29 @@ async def test_poller_loop_runs_by_itself(start_server: StartServer, worker: Fak
         assert done["status"] == "succeeded"
         health = (await server.request("GET", "/api/health")).json()
         assert health["worker"]["state"] == "ready"  # the loop refreshed the check
+
+
+async def test_job_expired_on_the_worker_fails_with_a_clear_message(
+    server: Server, worker: FakeWorker
+) -> None:
+    """The worker forgot a job the server still tracks (a TTL sweep while the server
+    was off, or a wiped volume): the generation fails instead of polling forever."""
+    gen = (await server.create()).json()
+    await _wait_worker_job(server, gen["worker_job_id"], "succeeded")
+    worker.app.state.runtime.store.delete(gen["worker_job_id"])
+    await server.runtime.poller.tick()
+    failed = await server.generation(gen["id"])
+    assert failed["status"] == "failed"
+    assert failed["error"]["code"] == "not_found"
+    assert failed["error"]["message"] == "The worker no longer has this job"
+
+
+async def test_delete_succeeds_when_the_worker_job_is_gone(
+    server: Server, worker: FakeWorker
+) -> None:
+    gen = (await server.create()).json()
+    done = await server.wait_for(gen["id"], "succeeded", tick=True)
+    worker.app.state.runtime.store.delete(done["worker_job_id"])
+    response = await server.request("DELETE", f"/api/generations/{gen['id']}")
+    assert response.status_code == 204
+    assert (await server.request("GET", f"/api/generations/{gen['id']}")).status_code == 404

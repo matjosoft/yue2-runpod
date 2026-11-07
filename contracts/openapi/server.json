@@ -841,7 +841,7 @@
     },
     "/api/generations/{id}": {
       "delete": {
-        "description": "Delete the record and its local files, then, best effort and after the response,\nthe worker's job. 409 while the generation is still in progress (cancel is M5).",
+        "description": "Delete the record and its local files, then, best effort and after the response,\nthe worker's job. 409 while the generation is still in progress: cancel it first.",
         "operationId": "delete_generation_api_generations__id__delete",
         "parameters": [
           {
@@ -1133,6 +1133,100 @@
           }
         },
         "summary": "Get Artifact",
+        "tags": [
+          "generations"
+        ]
+      }
+    },
+    "/api/generations/{id}/cancel": {
+      "post": {
+        "description": "Cancel a ``queued`` or ``running`` generation (S-9). A queued one comes back\n``canceled``. A running one comes back still ``running`` and ends ``canceled`` at\nthe worker's next stage boundary; keep polling. Nothing is downloaded. 409 in any\nother status, including ``downloading``.",
+        "operationId": "cancel_generation_api_generations__id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Cancel Generation",
         "tags": [
           "generations"
         ]

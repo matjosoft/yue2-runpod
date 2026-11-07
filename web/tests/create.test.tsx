@@ -334,6 +334,93 @@ describe("result card (U-2, U-3, U-6)", () => {
     expect(screen.getByRole("list", { name: "Stages" })).toBeInTheDocument();
   });
 
+  test.each(["queued", "running"] as const)("%s shows a Cancel button", async (status) => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status, stage: status === "running" ? "plan" : null }) });
+    renderApp("/create?gen=gen_01TEST");
+    expect(await screen.findByRole("button", { name: "Cancel generation" })).toBeEnabled();
+  });
+
+  test.each(["downloading", "succeeded", "failed", "canceled"] as const)("%s has no Cancel button", async (status) => {
+    const fake = installDefaultApi();
+    const generation = status === "succeeded" ? succeededGeneration() : makeGeneration({ status });
+    fake.on("GET", "/api/generations/gen_01TEST", { body: generation });
+    renderApp("/create?gen=gen_01TEST");
+    const card = await screen.findByTestId("result-status");
+    await waitFor(() => {
+      expect(card).not.toHaveTextContent("Loading…");
+    });
+    expect(screen.queryByRole("button", { name: "Cancel generation" })).not.toBeInTheDocument();
+  });
+
+  test("Cancel posts to the cancel endpoint and is disabled while pending", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status: "running", stage: "plan" }) });
+    let release: () => void = () => undefined;
+    fake.on("POST", "/api/generations/gen_01TEST/cancel", () => new Promise((resolve) => {
+      release = () => {
+        fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status: "canceled" }) });
+        resolve({ body: makeGeneration({ status: "canceled" }) });
+      };
+    }));
+    renderApp("/create?gen=gen_01TEST");
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel generation" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Canceling…" })).toBeDisabled();
+    });
+    expect(fake.callsTo("POST", "/api/generations/gen_01TEST/cancel")).toHaveLength(1);
+    release();
+    expect(await screen.findByText("This generation was canceled.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).not.toBeInTheDocument();
+  });
+
+  test("a running generation stays Canceling… until the poll says canceled", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fake = installDefaultApi();
+    const running = makeGeneration({ status: "running", stage: "plan" });
+    fake.on("GET", "/api/generations/gen_01TEST", { body: running });
+    fake.on("POST", "/api/generations/gen_01TEST/cancel", { body: running });
+    renderApp("/create?gen=gen_01TEST");
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel generation" }));
+    expect(await screen.findByRole("button", { name: "Canceling…" })).toBeDisabled();
+
+    // Polls that still say running (the worker has not reached a stage boundary).
+    const polls = fake.callsTo("GET", "/api/generations/gen_01TEST").length;
+    fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status: "running", stage: "semantic" }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERATION_POLL_MS * 2);
+    });
+    expect(fake.callsTo("GET", "/api/generations/gen_01TEST").length).toBeGreaterThan(polls);
+    expect(screen.getByRole("list", { name: "Stages" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Canceling…" })).toBeDisabled();
+    expect(fake.callsTo("POST", "/api/generations/gen_01TEST/cancel")).toHaveLength(1);
+
+    fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status: "canceled" }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERATION_POLL_MS);
+    });
+    expect(await screen.findByText("This generation was canceled.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).not.toBeInTheDocument();
+  });
+
+  test("a refused cancel shows the plain conflict message with Details", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: makeGeneration({ status: "running", stage: "save" }) });
+    fake.on("POST", "/api/generations/gen_01TEST/cancel", {
+      status: 409,
+      body: envelope("conflict", "job is succeeded; it can no longer be canceled"),
+    });
+    renderApp("/create?gen=gen_01TEST");
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel generation" }));
+    expect(
+      await screen.findByText("That isn't possible while the generation is in its current state."),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("conflict")).toBeInTheDocument();
+    expect(screen.getByText("job is succeeded; it can no longer be canceled")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel generation" })).toBeEnabled();
+  });
+
   test("an unknown generation id shows not_found in plain language", async () => {
     installDefaultApi();
     renderApp("/create?gen=gen_GONE");

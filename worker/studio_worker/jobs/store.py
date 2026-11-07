@@ -8,7 +8,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -227,6 +227,30 @@ class JobStore:
             del self._jobs[job_id]
             if self._by_request.get(job.client_request_id) == job_id:
                 del self._by_request[job.client_request_id]
+
+    def sweep_expired(self, now: datetime, ttl: timedelta) -> list[str]:
+        """Delete finished jobs whose ``finished_at`` is ``ttl`` or more before ``now``
+        (W-11). Queued and running jobs are never deleted. Returns the removed ids."""
+        cutoff = now - ttl
+        with self._lock:
+            expired = [
+                job
+                for job in self._jobs.values()
+                if job.state.is_terminal
+                and job.finished_at is not None
+                and job.finished_at <= cutoff
+            ]
+            for job in expired:
+                del self._jobs[job.id]
+                if self._by_request.get(job.client_request_id) == job.id:
+                    del self._by_request[job.client_request_id]
+        # The records are gone, so no request can reach these folders any more.
+        for job in expired:
+            shutil.rmtree(self.job_dir(job.id), ignore_errors=True)
+        removed = sorted(job.id for job in expired)
+        if removed:
+            log.info("deleted expired jobs", extra={"job_ids": removed})
+        return removed
 
     def clear_artifacts(self, job_id: str) -> None:
         """Discard whatever a failed or canceled job wrote."""

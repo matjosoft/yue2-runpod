@@ -1,10 +1,11 @@
-"""Generation records: API view, seed filling, worker-state mirroring and submit.
+"""Generation records: API view, seed filling, worker-state mirroring, submit and cancel.
 
 Shared by the ``generations`` feature and the poller, so it lives in core
 (docs/decisions.md). It never branches on an operation name: the seed is filled from the
 operation's published params schema.
 """
 
+import logging
 import secrets
 from datetime import datetime
 from typing import Any
@@ -17,11 +18,17 @@ from studio_contracts import (
     JobState,
     OperationInfo,
 )
-from studio_server.core.backend import JobView
+from studio_server.core.backend import BackendError, JobRef, JobView, MusicBackend
 from studio_server.core.db import Database, GenerationRecord, StoredArtifact
 from studio_server.core.worker import WorkerLink
 
+log = logging.getLogger("studio_server.generations")
+
 SEED_FALLBACK_MAX = 2**31 - 1
+
+CANCELABLE = frozenset({GenerationStatus.queued, GenerationStatus.running})
+"""S-9: only these can be canceled. ``downloading`` cannot: the worker job has already
+succeeded (docs/decisions.md, M5)."""
 
 STATUS_FOR_STATE: dict[JobState, GenerationStatus] = {
     JobState.queued: GenerationStatus.queued,
@@ -111,6 +118,55 @@ def mirror_changes(rec: GenerationRecord, view: JobView) -> dict[str, Any]:
 
 async def submit(link: WorkerLink, db: Database, rec: GenerationRecord) -> GenerationRecord:
     """Submit to the backend with the record's ``client_request_id`` (idempotent on the
-    worker) and store the job id. Raises ``BackendError``."""
-    ref = await link.backend().submit(rec.operation, rec.request, rec.client_request_id)
-    return db.update(rec.id, worker_job_id=ref.job_id)
+    worker) and store the job id. Raises ``BackendError``.
+
+    If the record was canceled while the submit was in flight, the new job is canceled
+    too (best effort). If it was deleted meanwhile, the job is canceled and
+    ``KeyError`` is raised."""
+    backend = link.backend()
+    ref = await backend.submit(rec.operation, rec.request, rec.client_request_id)
+    try:
+        updated = db.update(rec.id, worker_job_id=ref.job_id)
+    except KeyError:
+        await _cancel_quietly(backend, ref, rec.id)
+        raise
+    if updated.status is GenerationStatus.canceled:
+        await _cancel_quietly(backend, ref, rec.id)
+    return updated
+
+
+async def _cancel_quietly(backend: MusicBackend, ref: JobRef, gen_id: str) -> None:
+    try:
+        await backend.cancel(ref)
+    except BackendError as exc:
+        log.info("remote cancel skipped", extra={"generation_id": gen_id, "code": exc.code})
+
+
+async def cancel(link: WorkerLink, db: Database, rec: GenerationRecord) -> GenerationRecord:
+    """S-9: cancel the worker job, then mirror it once. A queued job comes back
+    ``canceled``; a running one still says ``running`` and the poller mirrors
+    ``canceled`` when the worker reaches the next stage boundary. A record with no
+    worker job, or whose job the worker no longer has, is canceled locally. Raises
+    ``BackendError`` (a worker 409 means the job has already finished)."""
+    if rec.worker_job_id is None:
+        return db.update(rec.id, status=GenerationStatus.canceled)
+    ref = JobRef(rec.worker_job_id)
+    backend = link.backend()
+    try:
+        await backend.cancel(ref)
+    except BackendError as exc:
+        if exc.http_status != 404:
+            raise
+        return db.update(rec.id, status=GenerationStatus.canceled)
+    try:
+        view = await backend.get_job(ref)
+    except BackendError as exc:  # the poller catches up
+        log.info("job read after cancel failed", extra={"generation_id": rec.id, "code": exc.code})
+        return db.get(rec.id) or rec
+    current = db.get(rec.id)
+    if current is None:
+        raise KeyError(rec.id)
+    if current.status not in CANCELABLE:
+        return current  # the poller moved it on while we waited; keep the newer state
+    changes = mirror_changes(current, view)
+    return db.update(rec.id, **changes) if changes else current

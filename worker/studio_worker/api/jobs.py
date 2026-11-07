@@ -1,4 +1,4 @@
-"""Job routes: submit, list, get, delete (W-2, W-3, W-4). Cancel arrives in M5."""
+"""Job routes: submit, list, get, cancel, delete (W-2, W-3, W-4, W-10)."""
 
 from typing import Annotated
 
@@ -71,6 +71,19 @@ async def get_job(job_id: str, rt: Runtime) -> Job:
         return rt.store.get(job_id)
     except JobNotFoundError:
         raise not_found(job_id) from None
+
+
+@router.post("/{job_id}/cancel", response_model=Job)
+async def cancel_job(job_id: str, rt: Runtime) -> Job:
+    """Cancel a job (W-10). A queued job is ``canceled`` in the answer. A running job
+    stops at its next stage boundary, so the answer still says ``running``; poll until
+    it is ``canceled``. Its output is discarded. 409 if the job has already finished."""
+    try:
+        return rt.executor.cancel(job_id)
+    except JobNotFoundError:
+        raise not_found(job_id) from None
+    except JobConflictError as exc:
+        raise ApiError(ErrorCode.conflict, str(exc), details={"job_id": job_id}) from None
 
 
 @router.delete("/{job_id}", status_code=204, response_class=Response)
