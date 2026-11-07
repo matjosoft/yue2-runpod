@@ -1,0 +1,71 @@
+# Workspace root. Not a package itself: it pulls in the three workspace members and
+# holds the shared tool configuration. See docs/decisions.md.
+[project]
+name = "studio"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["studio-contracts", "studio-worker", "studio-server"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "mypy>=1.18",
+    "pytest>=8.4",
+    "pytest-asyncio>=1.2",
+    "ruff>=0.14",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["contracts", "worker", "server"]
+
+[tool.uv.sources]
+studio-contracts = { workspace = true }
+studio-worker = { workspace = true }
+studio-server = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Never touch Markdown: this ruff version formats Python blocks inside .md files, and the
+# PRD's interface blocks must stay verbatim.
+extend-exclude = ["web", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["studio_contracts", "studio_worker", "studio_server"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = [
+    "contracts/studio_contracts",
+    "contracts/tests",
+    "worker/studio_worker",
+    "worker/tests",
+    "server/studio_server",
+    "server/tests",
+    "scripts",
+]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# The yue2 package is untyped and installed only in the worker image (M4).
+# Only worker/studio_worker/engines/yue2.py may import it.
+[[tool.mypy.overrides]]
+module = ["yue2", "yue2.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["contracts/tests", "worker/tests", "server/tests"]
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
