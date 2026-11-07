@@ -9,6 +9,10 @@ dependencies = [
     "studio-contracts",
     "fastapi>=0.120",
     "uvicorn>=0.38",
+    # FakeEngine writes FLAC. Bounds match the yue2 wheel's pins (numpy==2.2.6,
+    # soundfile==0.13.1) so the M4 image resolves without conflict.
+    "numpy>=2.2,<2.3",
+    "soundfile>=0.13.1,<0.14",
 ]
 
 [tool.uv.sources]

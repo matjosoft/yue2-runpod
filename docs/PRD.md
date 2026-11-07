@@ -198,7 +198,7 @@ Submit request:
 | `lyrics` | string | Required, 1 to 8000 characters, with section tags such as `[Verse]` and `[Chorus]` |
 | `seed` | integer | Optional, 0 to 2147483647. If absent the worker picks one and reports it in `params_resolved.seed` |
 | `cot` | enum | `full` (default), `melody`, `off` |
-| `cfg_scale` | number | Optional, greater than 0. If absent, do not pass it to the engine (use the model default) |
+| `cfg_scale` | number | Optional, greater than 0 and at most 20 (the engine rejects values above 20; changed in M1). If absent, do not pass it to the engine (use the model default) |
 
 Job object:
 

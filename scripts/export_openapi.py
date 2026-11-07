@@ -12,11 +12,22 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from studio_server.main import create_app as create_server_app
+from studio_worker.config import WorkerSettings
+from studio_worker.engines.fake import FakeEngine
 from studio_worker.main import create_app as create_worker_app
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def worker_app() -> FastAPI:
+    # The schema does not depend on settings or engine. Explicit values keep the export
+    # free of environment variables; the lifespan never runs, so nothing touches disk.
+    settings = WorkerSettings(api_key="openapi-export-" + "x" * 32, engine="fake")
+    return create_worker_app(settings, FakeEngine())
+
+
 APPS: dict[str, Callable[[], FastAPI]] = {
-    "worker": create_worker_app,
+    "worker": worker_app,
     "server": create_server_app,
 }
 

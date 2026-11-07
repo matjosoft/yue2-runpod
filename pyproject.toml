@@ -64,8 +64,15 @@ warn_required_dynamic_aliases = true
 module = ["yue2", "yue2.*"]
 ignore_missing_imports = true
 
+# soundfile 0.13 ships no type information (no py.typed, no stubs).
+[[tool.mypy.overrides]]
+module = ["soundfile"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["contracts/tests", "worker/tests", "server/tests"]
+# Test helper modules (worker_support.py) are imported by name; see docs/decisions.md.
+pythonpath = ["worker/tests"]
 addopts = "--import-mode=importlib"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

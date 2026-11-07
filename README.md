@@ -2,7 +2,7 @@
 
 Studio turns a style description and lyrics into a song. YuE2-3B generates it on a rented RunPod GPU, and you control it from a web app on your own machine. The specification is [docs/PRD.md](docs/PRD.md).
 
-> **Status: milestone M0 (scaffold and spike).** The repository, tooling and contracts pipeline exist. The worker, server and web app are empty skeletons, and nothing generates music yet.
+> **Status: milestone M1 (worker core).** The worker API runs end to end with a fake engine that needs no GPU. The real YuE2 engine (M4), the local server (M2) and the web app (M3) are not built yet.
 
 ## Layout
 
@@ -34,3 +34,21 @@ make dev        # server on http://127.0.0.1:8080 (reload) + Vite on http://127.
 ```
 
 `make run-fake` and `make build-worker` are placeholders. They become available in milestones M2 and M4.
+
+## Running the worker with the fake engine
+
+The fake engine walks through every stage and writes a short 48 kHz stereo FLAC, so the whole worker API can be tried without a GPU. `ENGINE=yue2` (the default) arrives in M4.
+
+```bash
+export WORKER_API_KEY=$(openssl rand -hex 32)   # at least 32 characters
+ENGINE=fake JOBS_DIR=./.jobs uv run --locked uvicorn studio_worker.main:app --port 8000
+
+curl localhost:8000/healthz
+curl -H "Authorization: Bearer $WORKER_API_KEY" localhost:8000/v1/capabilities
+curl -H "Authorization: Bearer $WORKER_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"client_request_id": "demo-1", "operation": "song.generate",
+       "params": {"style": "jazz-funk", "lyrics": "[Verse]\nla la"}}' \
+  localhost:8000/v1/jobs
+```
+
+`FAKE_LOAD_DELAY_S` and `FAKE_STAGE_DELAY_S` slow the fake model down, which is useful for seeing the `loading` state and stage progress. The worker's environment variables are listed in PRD section 8.
