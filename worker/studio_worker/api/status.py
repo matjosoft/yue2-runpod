@@ -1,5 +1,6 @@
 """``GET /healthz`` and ``GET /v1/status``."""
 
+import asyncio
 import time
 from typing import Annotated
 
@@ -24,11 +25,13 @@ async def healthz() -> Health:
 @router.get("/status", response_model=WorkerStatus, tags=["status"])
 async def get_status(rt: Runtime) -> WorkerStatus:
     loader = rt.executor.loader
+    # nvidia-smi is a subprocess: keep it off the event loop.
+    gpu = await asyncio.to_thread(rt.gpu.get) if rt.gpu is not None else None
     return WorkerStatus(
         uptime_s=int(time.monotonic() - rt.started),
         idle_seconds=rt.executor.idle_seconds(),
         model=ModelStatus(state=loader.state, error=loader.error),
-        gpu=None,  # GPU probing arrives with the real engine (M4)
+        gpu=gpu,
         queue=QueueStatus(
             queued=len(rt.executor.queue),
             running=rt.executor.running_job_id,

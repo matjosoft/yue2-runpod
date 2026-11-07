@@ -1,0 +1,15 @@
+# Build context for worker/Dockerfile is the repo root; send only what the image needs.
+**/.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+.git
+.env
+*.env
+web
+docs
+worker/tests
+server/tests
+contracts/tests

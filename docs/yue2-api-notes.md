@@ -145,6 +145,50 @@ The result types (`pipeline.py:19-118`) are plain dataclasses:
   - `save(path)`, which writes FLAC as PCM_24 or WAV as FLOAT. Any other suffix raises `ValueError`;
   - `save_artifacts(dir)`.
 
+### Staged reconstruction (read in M4, `pipeline.py:378-398`, `storage.py:19-21`)
+
+Re-read from the same wheel (sha256 checked) on 2026-11-07, again without running it. `__call__`
+is, verbatim:
+
+```python
+request = self._request(style, lyrics, tags=tags, **kwargs)
+config = self.effective_config(request, abc_sampling, semantic_sampling)
+request_id = identity({"request": request.to_dict(), "config": config, "weights": self.weights})
+start = time.perf_counter()
+plan = self.plan(request=request, abc_sampling=abc_sampling, cancelled=cancelled, on_token=on_token)
+semantic = self.generate_semantic(plan, sampling=semantic_sampling, cancelled=cancelled, on_token=on_token)
+nar_start = time.perf_counter()
+latents = self.synthesize(semantic, cancelled=cancelled)
+nar_seconds = time.perf_counter() - nar_start
+if cancelled is not None and cancelled():
+    raise InterruptedError("Cancelled before VAE")
+vae_start = time.perf_counter()
+audio = self.decode(latents)
+timing = {"abc": plan.timing, "semantic": semantic.timing, "nar_seconds": nar_seconds,
+          "vae_seconds": time.perf_counter() - vae_start, "load": dict(self.load_timing),
+          "e2e_seconds": time.perf_counter() - start}
+Progress(enabled=self.progress).complete(...)
+return SongResult(audio, 48000, semantic, latents, config, self.weights, timing, request_id)
+```
+
+- `identity(value)` is `sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+  separators=(",", ":"), allow_nan=False).encode()).hexdigest()`. Import it as
+  `from yue2.storage import identity`; `storage.py` imports only the standard library.
+- `self.weights` is set in `__init__` (`:152-154`) as `{"mot": model_identity(...), "vae":
+  model_identity(...)}`. `self.load_timing` is a public dict attribute.
+- `SongResult` fields, in order: `audio, sample_rate, semantic, latents, config, weights, timing,
+  request_identity`. `SymbolicPlan.request` is the `SongRequest`, which has `to_dict()`.
+- `plan(style=..., lyrics=..., cot=..., seed=..., cfg_scale=...)` builds the `SongRequest` itself
+  (`request = request or self._request(...)`), so `plan.request` carries `cfg_scale` into
+  `generate_semantic` (`:274-282`). The ABC phase uses no CFG.
+- `from_pretrained`'s VAE default is the literal `"m-a-p/YuE2-Vae"` (`:168`).
+
+**Decision (M4): staged.** `Yue2Engine` calls the four stages and then builds the `SongResult`
+exactly as above. It uses only public names (`effective_config`, `weights`, `load_timing`,
+`SongRequest.to_dict`, `SongResult`, `yue2.storage.identity`). The artifact set is the same as
+`pipe(...)`'s. `generate()` (single call) is also implemented, but is not used while
+`supports_staged` is true.
+
 ### Saving: `SongResult.save_artifacts(dir)` (`pipeline.py:103-118`)
 
 It writes these files into `dir`:
@@ -211,11 +255,11 @@ The OOM class name comes from torch, not from this wheel. M4 should catch it by 
 | ID | Status | Finding |
 | --- | --- | --- |
 | OQ-1 Lyrics syntax | Partly answered | The package does **no** tag parsing: lyrics are inserted verbatim (`protocol.py:109`). There are no tag lists, case rules or line limits in code; only the token budget applies. The official example `examples/tonight-awake.json` in the HF repo uses `[Intro] [Verse] [Pre-Chorus] [Chorus] [Interlude] [Bridge] [Outro]`, with an empty line between sections. The model card lists the languages `zh` and `en`. The PRD default stands: accept any text |
-| OQ-2 Staged return types; same artifacts? | Answered | Types are in §3. There is no public "save staged results" helper. However, `__call__` is itself only the staged sequence plus `SongResult(...)` (`pipeline.py:378-398`). The worker can call the four stages and then build `SongResult(audio, 48000, semantic, latents, pipe.effective_config(req), pipe.weights, timing, identity(...))`, exactly as `__call__` does, and then call `save_artifacts`. The artifact set is identical. The only non-exported helper used is `yue2.storage.identity` (`storage.py:19-21`, `cli.py:115-117`). So the staged path is viable. The decision is in M4 |
+| OQ-2 Staged return types; same artifacts? | Answered | Types are in §3. There is no public "save staged results" helper. However, `__call__` is itself only the staged sequence plus `SongResult(...)` (`pipeline.py:378-398`). The worker can call the four stages and then build `SongResult(audio, 48000, semantic, latents, pipe.effective_config(req), pipe.weights, timing, identity(...))`, exactly as `__call__` does, and then call `save_artifacts`. The artifact set is identical. The only non-exported helper used is `yue2.storage.identity` (`storage.py:19-21`, `cli.py:115-117`). So the staged path is viable. The decision is in M4 **M4: staged path chosen**; the exact reconstruction is in §3, "Staged reconstruction" |
 | OQ-3 Ranges; `truncated` | Answered | `cfg_scale` must be in [0, 20]; the engine rejects anything else. `seed` must be in [0, 2^63). **Song length (derived, not measured):** at 25 latent frames/s (48000/1920) and one frame per semantic token, the semantic token bounds of 200 to 9000 give about **8 to 360 s**. The model card's 214.85 s song is about 5370 tokens. **Lyrics length:** the semantic prefix (instruction, style, lyrics and up to 4096 ABC tokens) must fit within 24576 − 9000 = 15576 tokens, or the call raises `ValueError`. With `cot` full or melody, style plus lyrics must therefore stay under about 11.4k tokens. English at 8000 characters is well under that. Whether 8000 characters of CJK text fits is **not verified**; tokenization runs on CPU, so M4 can measure it. **`truncated`:** `{"abc": bool, "semantic": bool}`. A flag is true when that stage hit `max_tokens` without emitting its end token (`sampling.py:150`). The song is still produced and `status` stays `"complete"`; nothing is raised |
-| OQ-4 Sizes | Answered (weights); derived (jobs) | YuE2-3B `model.safetensors` is 7,261,441,640 B, `qwen.tiktoken` is 2,561,218 B, and the configs are small. YuE2-Vae `model.safetensors` is 530,512,720 B. **Download total: about 7.8 GB**, so the 50 GB volume default is ample. **Per job (derived):** `latent.npy` is about 6.4 KB/s of audio (about 1.4 MB for 3.6 min), `semantic.npy` about 100 B/s, plus the FLAC (24-bit stereo, a few tens of MB). Intermediates are far below the 100 MB threshold. M4 measures this |
+| OQ-4 Sizes | Answered (weights); derived (jobs) | YuE2-3B `model.safetensors` is 7,261,441,640 B, `qwen.tiktoken` is 2,561,218 B, and the configs are small. YuE2-Vae `model.safetensors` is 530,512,720 B. **Download total: about 7.8 GB**, so the 50 GB volume default is ample. **Per job (derived):** `latent.npy` is about 6.4 KB/s of audio (about 1.4 MB for 3.6 min), `semantic.npy` about 100 B/s, plus the FLAC (24-bit stereo, a few tens of MB). Intermediates are far below the 100 MB threshold. M4 measures this **M4 measurement (CPU, `np.save` at the largest documented shapes):** `latent.npy` [9000, 64] float32 = 2,304,128 B, `semantic.npy` [9000] = 36,128 B, `abc_tokens.npy` [4096] = 16,512 B, `prefix.npy` [15576] = 62,432 B, so about 2.4 MB of intermediates per job at most. `STUDIO_DOWNLOAD_INTERMEDIATES` stays `true`. Real FLAC sizes are not measured (no GPU) |
 | OQ-5 Reuse / thread safety | Partly answered | Not thread-safe; use one executor thread (§5). Reuse across jobs is the package's own batch pattern. Memory growth is unverifiable without a GPU |
-| OQ-6 CUDA / BF16 | Partly answered | The wheel pins `torch==2.10.0` with no CUDA variant. The default PyPI build for Linux x86_64 depends on `nvidia-*-cu12` 12.8.x (CUDA 12.8 runtime), cuDNN 9.10.2.21 and triton 3.6.0 (PyPI metadata, read 2026-11-07). BF16 is required on CUDA (`pipeline.py:159`). The minimum host driver for CUDA 12.8 is not determined here (M4/M6). The model card asks for a 24 GB GPU and 24 GB host RAM. It reports 11.18 GiB peak VRAM on an RTX 4090 (71 s for 214.85 s of audio) and 14.08 GiB at maximum context |
+| OQ-6 CUDA / BF16 | Partly answered | The wheel pins `torch==2.10.0` with no CUDA variant. The default PyPI build for Linux x86_64 depends on `nvidia-*-cu12` 12.8.x (CUDA 12.8 runtime), cuDNN 9.10.2.21 and triton 3.6.0 (PyPI metadata, read 2026-11-07). BF16 is required on CUDA (`pipeline.py:159`). The minimum host driver for CUDA 12.8 is not determined here (M4/M6). The model card asks for a 24 GB GPU and 24 GB host RAM. It reports 11.18 GiB peak VRAM on an RTX 4090 (71 s for 214.85 s of audio) and 14.08 GiB at maximum context **M4:** torch 2.10.0's PyPI build depends on `nvidia-cuda-runtime-cu12==12.8.90`, so the image uses `nvidia/cuda:12.8.1-runtime-ubuntu24.04`. NVIDIA's minimum Linux driver is 570.26 for 12.8 GA and 570.124.06 for 12.8.1. Minor-version compatibility allows 525–579 drivers, with caveats; untested. Whether RunPod hosts actually work is unverified (docs/runpod.md) |
 | OQ-7 RunPod stop/terminate, proxy URL | Not answered | Outside the wheel and model card. The owner verifies on RunPod |
 | OQ-8 Licences | Partly answered | The weights for YuE2-3B, YuE2-Vae and YuE2-Vae-legacy are **CC BY-NC 4.0** (the wheel's `LICENSE` and the HF repo cards). Third-party code in `modeling_vae.py` is MIT (stable-audio-tools, NVIDIA SnakeBeta). The `yue2` package code itself carries **no stated licence**: its `LICENSE` says it covers the weights only, and METADATA has no License field. The repo licence and the container registry remain the owner's choice (default: no licence file, GHCR) |
 

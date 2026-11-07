@@ -18,6 +18,7 @@ from studio_worker.config import WorkerSettings
 from studio_worker.engines.base import Engine
 from studio_worker.engines.factory import create_engine
 from studio_worker.errors import install_error_handlers
+from studio_worker.gpu import GpuProbe
 from studio_worker.jobs.executor import JobExecutor
 from studio_worker.jobs.store import JobStore
 from studio_worker.logs import configure_logging, install_request_logging
@@ -33,7 +34,10 @@ def create_app(settings: WorkerSettings | None = None, engine: Engine | None = N
     engine = engine or create_engine(settings)
     store = JobStore(settings.jobs_dir)
     executor = JobExecutor(store, engine, get_operation, max_queue=settings.max_queue)
-    runtime = WorkerRuntime(settings=settings, engine=engine, store=store, executor=executor)
+    gpu = GpuProbe() if settings.engine == "yue2" else None
+    runtime = WorkerRuntime(
+        settings=settings, engine=engine, store=store, executor=executor, gpu=gpu
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

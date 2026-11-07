@@ -50,5 +50,5 @@ lint: ## ruff, type checkers, ESLint
 contracts: ## Regenerate OpenAPI documents and TypeScript types
 	scripts/gen_api_types.sh
 
-build-worker: ## Build the worker image (from M4)
+build-worker: ## Build the worker image (TARGET=yue2 or fake, IMAGE=<name>)
 	scripts/build_worker.sh

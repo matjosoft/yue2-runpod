@@ -206,3 +206,32 @@ Server and tooling:
   - React Router 7, TanStack Query 5, openapi-fetch 0.17, Tailwind CSS 4 (Vite plugin) and Playwright 1.65.
   - `@testing-library/jest-dom` is held at 6, because 7 requires Node 22 and the project supports Node 20.19.
   - The client calls `globalThis.fetch` on every request, so Vitest can stub it, and query `AbortSignal`s are not passed to fetch (jsdom and Node disagree on the type).
+
+## M4 (2026-11-07)
+
+- **Staged engine.** `Yue2Engine` runs the four stages and then rebuilds the `SongResult` exactly as `YuE2Pipeline.__call__` does. It uses only public names (yue2-api-notes §3, "Staged reconstruction"). The single-call `generate()` is also implemented and tested, so switching to it means changing the `staged` constructor default. No env var was added for this, because the PRD has none.
+- **Cancellation inside a stage is not wired.** The `SongEngine` interface in PRD §7 has no way to pass a cancel callback, so the engine does not pass `cancelled=` to yue2. Cancellation stays at stage boundaries, which is what W-10 requires. Passing it through is an additive change for M5 or later.
+- **Load options.**
+  - `device="cuda"` (W-1) and `progress=False`.
+  - `cache_dir=$HF_HOME/hub`, which is the hub cache `huggingface_hub` would use anyway.
+  - `verify_hashes` is left at `True`, so every start re-hashes about 7.8 GB. It is the integrity record, and the cost is documented in docs/runpod.md.
+  - `vae` is passed only when `YUE2_VAE_REPO` is set.
+- **OOM detection without importing torch.** Any exception whose class (or a parent class) is named `OutOfMemoryError`, or whose message contains "out of memory", becomes `EngineOOM`, which the job reports as `oom`. Everything else propagates as `engine_error`.
+- **Engine identity.** In capabilities, `models` shows `repo@revision` when a revision is pinned. When `YUE2_VAE_REPO` is unset, `vae` shows the package default, `m-a-p/YuE2-Vae`. `package_version` comes from the installed `yue2-infer` distribution, or `unknown`.
+- **GPU in `/v1/status`** is read from `nvidia-smi`. It needs no framework import, is cached for 5 s, runs off the event loop, and gives `null` on any failure. It is enabled only when `ENGINE=yue2`.
+- **`engine.json`.** The engine writes this extra artifact (role `other`) holding its `info()`: kind, `yue2-infer` version and model repos/revisions. PRD §11 wants the wheel version recorded in artifacts, and yue2's own files record only a hash of its source.
+- **Artifact roles** follow the yue2-api-notes §7 suggestion. Unknown `.npy` files are `intermediate`; any other unknown file is `other`, because W-5 says to keep everything.
+- **`STUDIO_DOWNLOAD_INTERMEDIATES` stays `true`.** The intermediates measured at their largest documented shapes total about 2.4 MB per job (yue2-api-notes OQ-4), far below the 100 MB threshold.
+- **Image.**
+  - Multi-stage `worker/Dockerfile`, with targets `fake` (`python:3.12-slim-bookworm`) and `yue2` (`nvidia/cuda:12.8.1-runtime-ubuntu24.04`, the default).
+  - Requirements come from `uv export --frozen`, with uv 0.13.5 copied from `ghcr.io/astral-sh/uv`.
+  - The wheel is downloaded with `hf download` at the pinned repo revision and checked with `sha256sum -c`.
+  - Everything installs in one `uv pip install --no-sources` resolve. `--no-sources` is needed because the packages' `[tool.uv.sources]` point at the repo's uv workspace, which the image does not contain.
+  - The container runs as root, which keeps writes to the RunPod volume simple.
+  - The entrypoint is the PRD's `uvicorn studio_worker.main:app`, using the existing lazy `app`.
+- **Smoke script.**
+  - `scripts/smoke_worker.py` is async, so the tests can drive it in-process.
+  - `--timeout` bounds the model warm-up and the job wait separately.
+  - An optional `--min-audio-seconds` (default 10) lets it run against a fake worker. Defaults keep the PRD behaviour.
+  - `scripts/` is on pytest's `pythonpath` so tests can import it.
+- **Licence wording.** The pinned `LICENSE` and model card give plain CC BY-NC 4.0. They contain no extra permission for creators to monetise outputs, although PRD §11 and the M3 About note mention one. `NOTICE.md` states what the licence file says and flags the difference for the owner.

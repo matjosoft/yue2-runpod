@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import httpx
@@ -5,6 +6,7 @@ import pytest
 from worker_support import Worker
 
 from studio_worker import __version__, main
+from studio_worker.engines.yue2 import Yue2Engine
 
 
 async def test_openapi_document_is_served(worker: Worker) -> None:
@@ -45,12 +47,16 @@ def test_module_level_app_refuses_a_short_key(monkeypatch: pytest.MonkeyPatch) -
         main._app_from_env.cache_clear()
 
 
-def test_yue2_engine_is_not_available_yet(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_engine_is_yue2_and_loads_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``uvicorn studio_worker.main:app`` with ENGINE unset builds the real engine; the
+    yue2 package is imported only when the model loads, not when the app is built."""
     main._app_from_env.cache_clear()
     monkeypatch.setenv("WORKER_API_KEY", "e" * 32)
     monkeypatch.delenv("ENGINE", raising=False)
+    monkeypatch.delitem(sys.modules, "yue2", raising=False)
     try:
-        with pytest.raises(NotImplementedError, match="M4"):
-            _ = main.app
+        app = main.app
+        assert isinstance(app.state.runtime.engine, Yue2Engine)
+        assert "yue2" not in sys.modules
     finally:
         main._app_from_env.cache_clear()

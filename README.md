@@ -2,7 +2,7 @@
 
 Studio turns a style description and lyrics into a song. YuE2-3B generates it on a rented RunPod GPU, and you control it from a web app on your own machine. The specification is [docs/PRD.md](docs/PRD.md).
 
-> **Status: milestone M3 (web app).** The web app, the local server and the worker run end to end with a fake engine that needs no GPU. The real YuE2 engine and the worker image (M4) are not built yet.
+> **Status: milestone M4 (real engine and image).** The web app, the local server and the worker run end to end with a fake engine that needs no GPU. The real YuE2 engine, the worker image and the smoke script exist, but **no GPU run has happened yet**: real generation is verified by the owner in M6, following [docs/runpod.md](docs/runpod.md).
 
 ## Layout
 
@@ -12,8 +12,9 @@ Studio turns a style description and lyrics into a song. YuE2-3B generates it on
 | `worker/` | GPU worker (`studio_worker`). It runs on RunPod; from M1, a fake engine runs it without a GPU |
 | `server/` | Local server (`studio_server`): settings, library and worker client |
 | `web/` | React app (Vite, strict TypeScript) |
-| `scripts/` | Contract generation and, later, the worker build and smoke scripts |
-| `docs/` | PRD, YuE2 API notes and decisions |
+| `scripts/` | Contract generation, the worker image build (`build_worker.sh`) and the GPU smoke test (`smoke_worker.py`) |
+| `docs/` | PRD, YuE2 API notes, decisions and the RunPod runbook (`runpod.md`) |
+| `NOTICE.md` | The model, its authors and the CC BY-NC 4.0 weight licence: personal use only |
 
 ## Prerequisites
 
@@ -34,7 +35,7 @@ make dev        # server on http://127.0.0.1:8080 (reload) + Vite on http://127.
 make run-fake   # builds the web app; fake-engine worker on :8000 + server and UI on :8080
 ```
 
-`make build-worker` is a placeholder until milestone M4.
+`make build-worker` builds the worker image (needs Docker; `TARGET=fake` for the fake-engine variant). Deploying it on RunPod and running `scripts/smoke_worker.py` is described in [docs/runpod.md](docs/runpod.md).
 
 ## Running the worker with the fake engine
 

@@ -5,6 +5,8 @@ import threading
 from worker_support import StartWorker, Worker
 
 from studio_worker.engines.fake import FakeEngine
+from studio_worker.gpu import GpuProbe
+from studio_worker.runtime import WorkerRuntime
 
 
 async def test_healthz_is_ok_and_nothing_else(worker: Worker) -> None:
@@ -19,6 +21,17 @@ async def test_status_shape(worker: Worker) -> None:
     assert status["gpu"] is None
     assert status["queue"] == {"queued": 0, "running": None, "max": 4}
     assert status["uptime_s"] >= 0 and status["idle_seconds"] >= 0
+
+
+async def test_status_reports_the_gpu_probe(worker: Worker) -> None:
+    runtime: WorkerRuntime = worker.app.state.runtime
+    runtime.gpu = GpuProbe(run=lambda cmd: "NVIDIA GeForce RTX 4090, 24564, 11500\n")
+    status = await worker.status()
+    assert status["gpu"] == {
+        "name": "NVIDIA GeForce RTX 4090",
+        "vram_total_mb": 24564,
+        "vram_used_mb": 11500,
+    }
 
 
 async def test_status_shows_running_and_queued_jobs(start_worker: StartWorker) -> None:
