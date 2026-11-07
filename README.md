@@ -2,7 +2,7 @@
 
 Studio turns a style description and lyrics into a song. YuE2-3B generates it on a rented RunPod GPU, and you control it from a web app on your own machine. The specification is [docs/PRD.md](docs/PRD.md).
 
-> **Status: milestone M1 (worker core).** The worker API runs end to end with a fake engine that needs no GPU. The real YuE2 engine (M4), the local server (M2) and the web app (M3) are not built yet.
+> **Status: milestone M2 (server core).** The worker API and the local server API run end to end with a fake engine that needs no GPU. The web app (M3) and the real YuE2 engine (M4) are not built yet.
 
 ## Layout
 
@@ -31,9 +31,10 @@ make lint       # ruff, mypy (strict), tsc --noEmit, ESLint
 make test       # pytest, Vitest, and a check that generated contracts are up to date
 make contracts  # regenerate contracts/openapi/*.json and web/src/api/schema.d.ts
 make dev        # server on http://127.0.0.1:8080 (reload) + Vite on http://127.0.0.1:5173
+make run-fake   # fake-engine worker on :8000 + server on :8080, wired together
 ```
 
-`make run-fake` and `make build-worker` are placeholders. They become available in milestones M2 and M4.
+`make build-worker` is a placeholder until milestone M4.
 
 ## Running the worker with the fake engine
 
@@ -52,3 +53,23 @@ curl -H "Authorization: Bearer $WORKER_API_KEY" -H 'Content-Type: application/js
 ```
 
 `FAKE_LOAD_DELAY_S` and `FAKE_STAGE_DELAY_S` slow the fake model down, which is useful for seeing the `loading` state and stage progress. The worker's environment variables are listed in PRD section 8.
+
+## Running the local server against the fake worker
+
+`make run-fake` starts a fake-engine worker with a fresh random key and the local server already pointed at it. Both use temporary folders, so each run starts with an empty library; set `STUDIO_DATA_DIR` to keep one. Ctrl+C stops both.
+
+```bash
+make run-fake
+
+curl -X POST localhost:8080/api/worker/check          # {"state": "ready", ...}
+curl -H 'Content-Type: application/json' \
+  -d '{"operation": "song.generate", "request": {"style": "jazz-funk", "lyrics": "[Verse]\nla la"}}' \
+  localhost:8080/api/generations                       # 201, status "queued", seed filled in
+curl localhost:8080/api/generations                    # the library, newest first
+```
+
+To point the server at another worker, use `PUT /api/settings` with `worker_url` and `token`, or set `STUDIO_WORKER_URL` and `STUDIO_WORKER_TOKEN`. The token is write-only: no endpoint returns it. The server's settings are listed in [.env.example](.env.example) and PRD section 10. It stores its database and downloaded files in `STUDIO_DATA_DIR` (default `~/.studio`). To create or upgrade the database by hand:
+
+```bash
+STUDIO_DATA_DIR=~/.studio uv run --locked alembic -c server/alembic.ini upgrade head
+```

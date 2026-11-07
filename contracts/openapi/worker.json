@@ -106,7 +106,7 @@
         "type": "object"
       },
       "ErrorCode": {
-        "description": "Worker error codes. The server's client-side codes are added in M2.",
+        "description": "Worker error codes. The server's own client-side codes are ``ClientErrorCode``.",
         "enum": [
           "unauthorized",
           "not_found",

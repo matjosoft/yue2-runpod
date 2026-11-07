@@ -1,8 +1,1478 @@
 {
+  "components": {
+    "schemas": {
+      "ArtifactRole": {
+        "enum": [
+          "primary_audio",
+          "score",
+          "plan",
+          "result",
+          "intermediate",
+          "other"
+        ],
+        "title": "ArtifactRole",
+        "type": "string"
+      },
+      "Capabilities": {
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "string"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineInfo"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/OperationInfo"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "worker_version": {
+            "title": "Worker Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "worker_version",
+          "engine",
+          "operations"
+        ],
+        "title": "Capabilities",
+        "type": "object"
+      },
+      "ClientErrorCode": {
+        "description": "Codes only the local server adds to a generation's error (PRD section 6). They\nare kept apart from ``ErrorCode`` so the worker's OpenAPI never lists them.",
+        "enum": [
+          "worker_unreachable",
+          "incompatible_worker",
+          "download_failed",
+          "not_configured"
+        ],
+        "title": "ClientErrorCode",
+        "type": "string"
+      },
+      "EngineInfo": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "models": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "object"
+          },
+          "package_version": {
+            "title": "Package Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "package_version",
+          "models"
+        ],
+        "title": "EngineInfo",
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "Worker error codes. The server's own client-side codes are ``ClientErrorCode``.",
+        "enum": [
+          "unauthorized",
+          "not_found",
+          "conflict",
+          "validation_error",
+          "queue_full",
+          "not_ready",
+          "oom",
+          "engine_error",
+          "worker_restarted",
+          "internal"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      },
+      "Generation": {
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/GenerationArtifact"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServerErrorInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": true,
+            "title": "Request",
+            "type": "object"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GenerationStatus"
+          },
+          "timings": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Timings",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "worker_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Job Id"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "operation",
+          "request",
+          "status",
+          "stage",
+          "stages",
+          "error",
+          "worker_job_id",
+          "timings",
+          "artifacts",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Generation",
+        "type": "object"
+      },
+      "GenerationArtifact": {
+        "description": "An artifact stored locally. ``url`` serves it, with Range support.",
+        "properties": {
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ArtifactRole"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "role",
+          "media_type",
+          "size_bytes",
+          "url"
+        ],
+        "title": "GenerationArtifact",
+        "type": "object"
+      },
+      "GenerationCreate": {
+        "additionalProperties": false,
+        "description": "Body of ``POST /api/generations``. ``request`` has the same shape as\n``Generation.request``, so a stored request can be sent again as is.",
+        "properties": {
+          "operation": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Operation",
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": true,
+            "title": "Request",
+            "type": "object"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "operation",
+          "request"
+        ],
+        "title": "GenerationCreate",
+        "type": "object"
+      },
+      "GenerationList": {
+        "description": "``GET /api/generations``: newest first. Pass ``next_cursor`` back as ``cursor``.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Generation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "GenerationList",
+        "type": "object"
+      },
+      "GenerationStatus": {
+        "description": "``queued`` and ``running`` mirror the worker; ``downloading`` exists only here.",
+        "enum": [
+          "queued",
+          "running",
+          "downloading",
+          "succeeded",
+          "failed",
+          "canceled"
+        ],
+        "title": "GenerationStatus",
+        "type": "string"
+      },
+      "ModelState": {
+        "enum": [
+          "loading",
+          "ready",
+          "error"
+        ],
+        "title": "ModelState",
+        "type": "string"
+      },
+      "OperationInfo": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params_schema": {
+            "additionalProperties": true,
+            "title": "Params Schema",
+            "type": "object"
+          },
+          "stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "stages",
+          "params_schema"
+        ],
+        "title": "OperationInfo",
+        "type": "object"
+      },
+      "ServerErrorEnvelope": {
+        "description": "Every non-2xx response of the local server: ``{\"error\": {...}}``.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ServerErrorInfo"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ServerErrorEnvelope",
+        "type": "object"
+      },
+      "ServerErrorInfo": {
+        "description": "Like ``ErrorInfo``, but the code may also be one of the server's client codes.",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorCode"
+              },
+              {
+                "$ref": "#/components/schemas/ClientErrorCode"
+              }
+            ],
+            "title": "Code"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "ServerErrorInfo",
+        "type": "object"
+      },
+      "ServerHealth": {
+        "description": "``GET /api/health``: the server is up, plus the last worker check.",
+        "properties": {
+          "ok": {
+            "const": true,
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "worker": {
+            "$ref": "#/components/schemas/WorkerCheck"
+          }
+        },
+        "required": [
+          "worker"
+        ],
+        "title": "ServerHealth",
+        "type": "object"
+      },
+      "SettingsUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT /api/settings``. A field that is omitted keeps its saved value; ``null``\nclears it (the environment default then applies); a value replaces it.",
+        "properties": {
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "worker_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "^https?://\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Url"
+          }
+        },
+        "title": "SettingsUpdate",
+        "type": "object"
+      },
+      "SettingsView": {
+        "description": "``GET /api/settings``. The token is write-only: only whether one is set.",
+        "properties": {
+          "token_set": {
+            "title": "Token Set",
+            "type": "boolean"
+          },
+          "worker_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Url"
+          }
+        },
+        "required": [
+          "worker_url",
+          "token_set"
+        ],
+        "title": "SettingsView",
+        "type": "object"
+      },
+      "WorkerCheck": {
+        "description": "Result of ``POST /api/worker/check``, also embedded in ``/api/health``.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServerErrorInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorkerCheckState"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "error",
+          "worker"
+        ],
+        "title": "WorkerCheck",
+        "type": "object"
+      },
+      "WorkerCheckState": {
+        "description": "S-5's five states, plus ``incompatible`` (API major differs) and ``error`` (the\nmodel failed to load). Owner-approved in M2 (docs/decisions.md).",
+        "enum": [
+          "not_configured",
+          "unreachable",
+          "unauthorized",
+          "warming_up",
+          "ready",
+          "incompatible",
+          "error"
+        ],
+        "title": "WorkerCheckState",
+        "type": "string"
+      },
+      "WorkerSummary": {
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "string"
+          },
+          "model_state": {
+            "$ref": "#/components/schemas/ModelState"
+          },
+          "worker_version": {
+            "title": "Worker Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "worker_version",
+          "model_state"
+        ],
+        "title": "WorkerSummary",
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "Studio server",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
-  "paths": {}
+  "paths": {
+    "/api/capabilities": {
+      "get": {
+        "description": "The worker's capabilities, cached since the last successful check.",
+        "operationId": "capabilities_api_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Capabilities",
+        "tags": [
+          "worker"
+        ]
+      }
+    },
+    "/api/generations": {
+      "get": {
+        "description": "Newest first. Pass ``next_cursor`` back as ``cursor`` for the next page.",
+        "operationId": "list_generations_api_generations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "List Generations",
+        "tags": [
+          "generations"
+        ]
+      },
+      "post": {
+        "description": "Validate, fill in the seed, store the record as ``queued`` and submit it. If the\nworker rejects the submit or cannot be reached, no record is kept and the error is\nreturned, so the UI can keep the typed input (AT-3).",
+        "operationId": "create_generation_api_generations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Create Generation",
+        "tags": [
+          "generations"
+        ]
+      }
+    },
+    "/api/generations/{id}": {
+      "delete": {
+        "description": "Delete the record and its local files, then, best effort and after the response,\nthe worker's job. 409 while the generation is still in progress (cancel is M5).",
+        "operationId": "delete_generation_api_generations__id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Delete Generation",
+        "tags": [
+          "generations"
+        ]
+      },
+      "get": {
+        "operationId": "get_generation_api_generations__id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Generation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get Generation",
+        "tags": [
+          "generations"
+        ]
+      }
+    },
+    "/api/generations/{id}/artifacts/{name}": {
+      "get": {
+        "description": "A stored artifact, with HTTP Range support (S-7). Only names in the generation's\nmanifest that are stored locally are served.",
+        "operationId": "get_artifact_api_generations__id__artifacts__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "The file"
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "A byte range"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get Artifact",
+        "tags": [
+          "generations"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "The server is up. ``worker`` is the last check result, refreshed by the poller\nevery few seconds, so this call never waits on the worker.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "worker"
+        ]
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "description": "The effective worker URL, and whether a token is set. Never the token.",
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Omitted fields keep their saved value; ``null`` clears it (the environment\ndefault then applies); a value replaces it.",
+        "operationId": "put_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Put Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/worker/check": {
+      "post": {
+        "description": "Test the saved settings now. Always 200; the outcome is in ``state``.",
+        "operationId": "check_worker_api_worker_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Check Worker",
+        "tags": [
+          "worker"
+        ]
+      }
+    }
+  }
 }

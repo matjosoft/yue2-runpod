@@ -5,8 +5,23 @@ The OpenAPI documents in ``contracts/openapi/`` are generated from the apps that
 them; run ``make contracts`` after any change.
 """
 
-from studio_contracts.errors import ErrorCode, ErrorEnvelope, ErrorInfo
+from studio_contracts.errors import ClientErrorCode, ErrorCode, ErrorEnvelope, ErrorInfo
 from studio_contracts.jobs import Artifact, ArtifactRole, Job, JobList, JobState, JobSubmit
+from studio_contracts.server import (
+    Generation,
+    GenerationArtifact,
+    GenerationCreate,
+    GenerationList,
+    GenerationStatus,
+    ServerErrorEnvelope,
+    ServerErrorInfo,
+    ServerHealth,
+    SettingsUpdate,
+    SettingsView,
+    WorkerCheck,
+    WorkerCheckState,
+    WorkerSummary,
+)
 from studio_contracts.song import SongParams
 from studio_contracts.worker import (
     Capabilities,
@@ -28,10 +43,16 @@ __all__ = [
     "Artifact",
     "ArtifactRole",
     "Capabilities",
+    "ClientErrorCode",
     "EngineInfo",
     "ErrorCode",
     "ErrorEnvelope",
     "ErrorInfo",
+    "Generation",
+    "GenerationArtifact",
+    "GenerationCreate",
+    "GenerationList",
+    "GenerationStatus",
     "GpuInfo",
     "Health",
     "Job",
@@ -42,6 +63,14 @@ __all__ = [
     "ModelStatus",
     "OperationInfo",
     "QueueStatus",
+    "ServerErrorEnvelope",
+    "ServerErrorInfo",
+    "ServerHealth",
+    "SettingsUpdate",
+    "SettingsView",
     "SongParams",
+    "WorkerCheck",
+    "WorkerCheckState",
     "WorkerStatus",
+    "WorkerSummary",
 ]

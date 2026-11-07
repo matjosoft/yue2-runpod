@@ -25,9 +25,8 @@ dev-server:
 dev-web:
 	$(PNPM) dev
 
-run-fake: ## Run a fake-engine worker and the server together (from M2)
-	@echo "run-fake: not available yet; it needs the fake engine (M1) and the server core (M2)." >&2
-	@exit 1
+run-fake: ## Run a fake-engine worker and the server together
+	scripts/run_fake.sh
 
 test: ## Python tests, web tests, and the contracts-up-to-date check
 	$(UV) pytest
@@ -36,6 +35,7 @@ test: ## Python tests, web tests, and the contracts-up-to-date check
 
 typecheck: ## mypy (strict) and tsc --noEmit
 	$(UV) mypy
+	$(UV) mypy server/tests
 	$(PNPM) typecheck
 
 lint: ## ruff, type checkers, ESLint

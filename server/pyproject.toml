@@ -7,6 +7,10 @@ dependencies = [
     "studio-contracts",
     "fastapi>=0.120",
     "uvicorn>=0.38",
+    "sqlalchemy>=2.0",
+    "alembic>=1.16",
+    "httpx>=0.28",
+    "python-dotenv>=1.1",
 ]
 
 [tool.uv.sources]

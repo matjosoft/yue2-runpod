@@ -3,10 +3,386 @@
  * Do not make direct changes to the file.
  */
 
-export type paths = Record<string, never>;
+export interface paths {
+    "/api/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capabilities
+         * @description The worker's capabilities, cached since the last successful check.
+         */
+        get: operations["capabilities_api_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Generations
+         * @description Newest first. Pass ``next_cursor`` back as ``cursor`` for the next page.
+         */
+        get: operations["list_generations_api_generations_get"];
+        put?: never;
+        /**
+         * Create Generation
+         * @description Validate, fill in the seed, store the record as ``queued`` and submit it. If the
+         *     worker rejects the submit or cannot be reached, no record is kept and the error is
+         *     returned, so the UI can keep the typed input (AT-3).
+         */
+        post: operations["create_generation_api_generations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/generations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Generation */
+        get: operations["get_generation_api_generations__id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Generation
+         * @description Delete the record and its local files, then, best effort and after the response,
+         *     the worker's job. 409 while the generation is still in progress (cancel is M5).
+         */
+        delete: operations["delete_generation_api_generations__id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/generations/{id}/artifacts/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Artifact
+         * @description A stored artifact, with HTTP Range support (S-7). Only names in the generation's
+         *     manifest that are stored locally are served.
+         */
+        get: operations["get_artifact_api_generations__id__artifacts__name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health
+         * @description The server is up. ``worker`` is the last check result, refreshed by the poller
+         *     every few seconds, so this call never waits on the worker.
+         */
+        get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Settings
+         * @description The effective worker URL, and whether a token is set. Never the token.
+         */
+        get: operations["get_settings_api_settings_get"];
+        /**
+         * Put Settings
+         * @description Omitted fields keep their saved value; ``null`` clears it (the environment
+         *     default then applies); a value replaces it.
+         */
+        put: operations["put_settings_api_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/worker/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Worker
+         * @description Test the saved settings now. Always 200; the outcome is in ``state``.
+         */
+        post: operations["check_worker_api_worker_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
+    schemas: {
+        /**
+         * ArtifactRole
+         * @enum {string}
+         */
+        ArtifactRole: "primary_audio" | "score" | "plan" | "result" | "intermediate" | "other";
+        /** Capabilities */
+        Capabilities: {
+            /** Api Version */
+            api_version: string;
+            engine: components["schemas"]["EngineInfo"];
+            /** Operations */
+            operations: components["schemas"]["OperationInfo"][];
+            /** Worker Version */
+            worker_version: string;
+        };
+        /**
+         * ClientErrorCode
+         * @description Codes only the local server adds to a generation's error (PRD section 6). They
+         *     are kept apart from ``ErrorCode`` so the worker's OpenAPI never lists them.
+         * @enum {string}
+         */
+        ClientErrorCode: "worker_unreachable" | "incompatible_worker" | "download_failed" | "not_configured";
+        /** EngineInfo */
+        EngineInfo: {
+            /** Kind */
+            kind: string;
+            /** Models */
+            models: {
+                [key: string]: string;
+            };
+            /** Package Version */
+            package_version: string;
+        };
+        /**
+         * ErrorCode
+         * @description Worker error codes. The server's own client-side codes are ``ClientErrorCode``.
+         * @enum {string}
+         */
+        ErrorCode: "unauthorized" | "not_found" | "conflict" | "validation_error" | "queue_full" | "not_ready" | "oom" | "engine_error" | "worker_restarted" | "internal";
+        /** Generation */
+        Generation: {
+            /** Artifacts */
+            artifacts: components["schemas"]["GenerationArtifact"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            error: components["schemas"]["ServerErrorInfo"] | null;
+            /** Id */
+            id: string;
+            /** Operation */
+            operation: string;
+            /** Request */
+            request: {
+                [key: string]: unknown;
+            };
+            /** Stage */
+            stage: string | null;
+            /** Stages */
+            stages: string[];
+            status: components["schemas"]["GenerationStatus"];
+            /** Timings */
+            timings: {
+                [key: string]: number;
+            };
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Worker Job Id */
+            worker_job_id: string | null;
+        };
+        /**
+         * GenerationArtifact
+         * @description An artifact stored locally. ``url`` serves it, with Range support.
+         */
+        GenerationArtifact: {
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["ArtifactRole"];
+            /** Size Bytes */
+            size_bytes: number;
+            /** Url */
+            url: string;
+        };
+        /**
+         * GenerationCreate
+         * @description Body of ``POST /api/generations``. ``request`` has the same shape as
+         *     ``Generation.request``, so a stored request can be sent again as is.
+         */
+        GenerationCreate: {
+            /** Operation */
+            operation: string;
+            /** Request */
+            request: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * GenerationList
+         * @description ``GET /api/generations``: newest first. Pass ``next_cursor`` back as ``cursor``.
+         */
+        GenerationList: {
+            /** Items */
+            items: components["schemas"]["Generation"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /**
+         * GenerationStatus
+         * @description ``queued`` and ``running`` mirror the worker; ``downloading`` exists only here.
+         * @enum {string}
+         */
+        GenerationStatus: "queued" | "running" | "downloading" | "succeeded" | "failed" | "canceled";
+        /**
+         * ModelState
+         * @enum {string}
+         */
+        ModelState: "loading" | "ready" | "error";
+        /** OperationInfo */
+        OperationInfo: {
+            /** Name */
+            name: string;
+            /** Params Schema */
+            params_schema: {
+                [key: string]: unknown;
+            };
+            /** Stages */
+            stages: string[];
+        };
+        /**
+         * ServerErrorEnvelope
+         * @description Every non-2xx response of the local server: ``{"error": {...}}``.
+         */
+        ServerErrorEnvelope: {
+            error: components["schemas"]["ServerErrorInfo"];
+        };
+        /**
+         * ServerErrorInfo
+         * @description Like ``ErrorInfo``, but the code may also be one of the server's client codes.
+         */
+        ServerErrorInfo: {
+            /** Code */
+            code: components["schemas"]["ErrorCode"] | components["schemas"]["ClientErrorCode"];
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            };
+            /** Message */
+            message: string;
+            /** Retryable */
+            retryable: boolean;
+        };
+        /**
+         * ServerHealth
+         * @description ``GET /api/health``: the server is up, plus the last worker check.
+         */
+        ServerHealth: {
+            /**
+             * Ok
+             * @default true
+             * @constant
+             */
+            ok: true;
+            worker: components["schemas"]["WorkerCheck"];
+        };
+        /**
+         * SettingsUpdate
+         * @description ``PUT /api/settings``. A field that is omitted keeps its saved value; ``null``
+         *     clears it (the environment default then applies); a value replaces it.
+         */
+        SettingsUpdate: {
+            /** Token */
+            token?: string | null;
+            /** Worker Url */
+            worker_url?: string | null;
+        };
+        /**
+         * SettingsView
+         * @description ``GET /api/settings``. The token is write-only: only whether one is set.
+         */
+        SettingsView: {
+            /** Token Set */
+            token_set: boolean;
+            /** Worker Url */
+            worker_url: string | null;
+        };
+        /**
+         * WorkerCheck
+         * @description Result of ``POST /api/worker/check``, also embedded in ``/api/health``.
+         */
+        WorkerCheck: {
+            error: components["schemas"]["ServerErrorInfo"] | null;
+            state: components["schemas"]["WorkerCheckState"];
+            worker: components["schemas"]["WorkerSummary"] | null;
+        };
+        /**
+         * WorkerCheckState
+         * @description S-5's five states, plus ``incompatible`` (API major differs) and ``error`` (the
+         *     model failed to load). Owner-approved in M2 (docs/decisions.md).
+         * @enum {string}
+         */
+        WorkerCheckState: "not_configured" | "unreachable" | "unauthorized" | "warming_up" | "ready" | "incompatible" | "error";
+        /** WorkerSummary */
+        WorkerSummary: {
+            /** Api Version */
+            api_version: string;
+            model_state: components["schemas"]["ModelState"];
+            /** Worker Version */
+            worker_version: string;
+        };
+    };
     responses: never;
     parameters: never;
     requestBodies: never;
@@ -14,4 +390,772 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    capabilities_api_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Capabilities"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_generations_api_generations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerationList"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_generation_api_generations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Generation"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_generation_api_generations__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Generation"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_generation_api_generations__id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_artifact_api_generations__id__artifacts__name__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                Range?: string | null;
+            };
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description A byte range */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    health_api_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerHealth"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_settings_api_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsView"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    put_settings_api_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsView"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+    check_worker_api_worker_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerCheck"];
+                };
+            };
+            /** @description Error envelope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+            /** @description Error envelope */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerErrorEnvelope"];
+                };
+            };
+        };
+    };
+}

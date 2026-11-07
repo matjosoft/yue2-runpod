@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class ErrorCode(StrEnum):
-    """Worker error codes. The server's client-side codes are added in M2."""
+    """Worker error codes. The server's own client-side codes are ``ClientErrorCode``."""
 
     unauthorized = "unauthorized"
     not_found = "not_found"
@@ -19,6 +19,16 @@ class ErrorCode(StrEnum):
     engine_error = "engine_error"
     worker_restarted = "worker_restarted"
     internal = "internal"
+
+
+class ClientErrorCode(StrEnum):
+    """Codes only the local server adds to a generation's error (PRD section 6). They
+    are kept apart from ``ErrorCode`` so the worker's OpenAPI never lists them."""
+
+    worker_unreachable = "worker_unreachable"
+    incompatible_worker = "incompatible_worker"
+    download_failed = "download_failed"
+    not_configured = "not_configured"
 
 
 class ErrorInfo(BaseModel):

@@ -75,3 +75,83 @@ Worker internals:
   - Lyrics, style and the token are never logged; a test checks this.
 - **Worker dependencies `numpy>=2.2,<2.3` and `soundfile>=0.13.1,<0.14`** are there for the fake engine's FLAC. The bounds match the yue2 wheel's pins, so the M4 image resolves. soundfile has no type information, so mypy ignores its imports.
 - **Shared worker test helpers live in `worker/tests/worker_support.py`.** pytest's `pythonpath` includes `worker/tests`, because `--import-mode=importlib` makes `conftest` unimportable.
+
+## M2 (2026-11-07)
+
+Contract and scope (owner-approved):
+
+- **A submit the worker rejects, or cannot be reached for, keeps no record.**
+  - `POST /api/generations` stores the record, submits, and on a definitive failure deletes the record and returns the error envelope. That way the UI keeps the typed input (AT-3).
+  - HTTP status: the worker's 422, 429 and 503 pass through. `unauthorized`, `worker_unreachable`, `incompatible_worker` and any other backend failure return 502. `not_configured` returns 409.
+- **The server validates the envelope only.**
+  - `title` is 0 to 200 characters, and `operation` must be in the cached capabilities.
+  - Params are validated by the worker. Its 422 is relayed, with `params.<field>` renamed to `request.<field>`.
+  - The seed is filled generically: if the operation's `params_schema` has an integer `seed` and none was sent (or it was `null`), the server picks one within the schema's `minimum` and `maximum`. No song-specific code is involved.
+- **The worker check has seven states**: S-5's five, plus `incompatible` (API major differs) and `error` (the model failed to load).
+- **Deleting a generation that is `queued`, `running` or `downloading` returns 409 `conflict`** until cancel exists (M5).
+- **`make run-fake` exists from M2** (`scripts/run_fake.sh`).
+
+Server API details the PRD leaves open:
+
+- **`POST /api/generations`** takes `{title?, operation, request}` and returns 201 with the generation. `request` has the same shape as `Generation.request`, so a stored request can be sent again unchanged.
+- **`GET /api/generations?limit=&cursor=`** returns `{items, next_cursor}`, newest first.
+  - The limit defaults to 20, with a maximum of 100.
+  - The cursor is opaque to clients; it is the last item's id. Ids are `gen_` plus a monotonic ULID, so id order is creation order.
+- **Settings.**
+  - `GET /api/settings` returns `{worker_url, token_set}`.
+  - In the `PUT` body, an omitted field keeps the saved value, `null` clears it (the environment value then applies again), and a value replaces it.
+  - The URL must be `http(s)://`. The token is 1 to 512 characters; the worker enforces its own minimum.
+- **Check and health.**
+  - `POST /api/worker/check` always answers 200, with `{state, error, worker: {api_version, worker_version, model_state} | null}`.
+  - `GET /api/health` is `{ok: true, worker: <last check>}`. It never calls the worker: the poller loop refreshes the check every 5 s (`check_interval_s`), which keeps health under the 200 ms target and the pill within U-5's 10 s.
+  - Until the first check, the state is `unreachable` with the message "not checked yet".
+- **`GET /api/capabilities`** returns the cached copy. It fetches once if nothing is cached, and stays available when the worker goes away (S-6). A settings change drops the cache.
+- **Errors in the server API** use `ServerErrorInfo`, whose `code` is `ErrorCode | ClientErrorCode`. The client codes are a separate enum, so the worker's OpenAPI never lists codes the worker cannot send. Default `retryable` is `true` for `worker_unreachable` and `download_failed`, plus the worker's defaults.
+- **Default title**: `Untitled YYYY-MM-DD HH:MM` in the server's local time.
+
+Backend and poller:
+
+- **Backend types the PRD uses without defining them:**
+  - `JobRef` is `{job_id}`.
+  - `JobView` is backend-neutral: `state`, `stage`, `stages`, `progress`, `timings`, `params_resolved`, `error` and `artifacts`.
+  - `BackendError(info, http_status)` is raised for every failure, with the worker's own envelope when it sent one.
+- **`MusicBackend`** is the PRD's protocol. The only change is `params: dict` written as `dict[str, Any]`, because mypy strict requires it. Closing connections uses a separate `Closeable` protocol, so `MusicBackend` itself is unchanged.
+- **Retries.** At most 3 retries, with backoff from `retry_base_s` (0.5 s) doubling each time. `Retry-After` is not honoured, so a submit to a worker that is still loading answers in about 3.5 s, not 30. A proxy's non-JSON 502, 503 or 504 becomes `worker_unreachable`.
+- **Errors while polling.**
+  - A worker 404 for a known job fails the generation with `not_found`.
+  - These count toward `STUDIO_UNREACHABLE_GRACE_S` instead of failing at once: `worker_unreachable`, `not_configured`, `unauthorized`, `queue_full`, `not_ready` and `internal`.
+  - The grace timer is per generation and kept in memory, so it restarts on a server restart.
+- **A record with no worker job** (the server stopped between storing and submitting) is resubmitted by the poller with the same `client_request_id`. The worker treats that as the same job. Records whose submit is still in flight in a request handler are skipped.
+- **Downloads.**
+  - At most 2 at once, across all generations.
+  - A file that fails the size or sha256 check is fetched again up to 3 times, then the generation fails with `download_failed`.
+  - If every failure was a lost connection, the grace period applies instead.
+  - Verified files that were already stored are kept.
+  - Downloads run inside the tick, so a long download delays polling of other generations. That is acceptable for one user.
+- **`artifacts_json` holds the full worker manifest** (with sha256) plus a `stored` flag per file. The API lists only stored files, each with its `url`. With `STUDIO_DOWNLOAD_INTERMEDIATES=false`, `intermediate` files stay in the manifest but are not downloaded.
+
+Storage and database:
+
+- **Synchronous SQLAlchemy 2 on SQLite** (WAL, `busy_timeout` 5 s).
+  - Timestamps are stored as fixed-width ISO 8601 UTC text, so they sort as text.
+  - Startup runs `alembic upgrade head` from code. `server/alembic.ini` lets the CLI do the same, reading the database path from `STUDIO_DATA_DIR`.
+- **`studio.db` is chmod 0600 on POSIX**, because it holds the token in plain text. On Windows no permissions are set.
+- **Downloads go to `<generation>/.partial/`**, are verified, and are moved into place with `os.replace`. Leftover `.partial` folders are removed at startup. `.partial` is never a valid artifact name.
+
+Module layout:
+
+- **Core has more modules than the PRD's four.** Besides `db`, `storage`, `poller` and `backend/` there are:
+  - `worker.py`: settings precedence, the backend for the current settings, the check and the capabilities cache;
+  - `generations.py`: the API view, seed filling, state mirroring and submit;
+  - `runtime.py`, `errors.py`, `logs.py` and `ids.py`.
+
+  The poller and two or more features share each of these, and features may not import each other.
+- **`Feature` lives in `features/base.py`.** Each feature is one module (`features/<name>/__init__.py`).
+- **The server never imports `studio_worker`.** A test enforces this. So `UlidFactory`, the JSON log formatter, the error handlers and the Range check are small copies of the worker's.
+- **The server lowers the `httpx` logger to WARNING**, because it would otherwise log every poll.
+
+Tooling:
+
+- **mypy runs twice** (`make typecheck`): once with the configured files, then once on `server/tests`. Both test folders have a `conftest.py`, and mypy cannot hold two top-level modules with the same name.
+- **Server tests use the real worker app with `FakeEngine`, in-process.** Server test helpers live in `server/tests/server_support.py`, and `server/tests` is on pytest's `pythonpath`. `SwitchableTransport` sits between server and worker to simulate an outage, corrupt downloads and count parallel downloads. AT-5 stops the server through its lifespan (a clean stop, not a `kill -9`), then starts a new app on the same data dir.
+- **`python -m studio_server`** runs the server on `STUDIO_HOST`:`STUDIO_PORT`. `make run-fake` uses it.
