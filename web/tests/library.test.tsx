@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test } from "vitest";
-import { installDefaultApi, makeGeneration, succeededGeneration } from "./fakeApi";
+import { installDefaultApi, makeGeneration, SCORE_TEXT, succeededGeneration } from "./fakeApi";
 import { renderApp } from "./render";
 
 const LONG_STYLE = "English, jazz-funk, warm lead vocal, Rhodes, bass and drums, with brass stabs and a slow groove";
@@ -103,6 +103,22 @@ describe("Library (U-4)", () => {
     expect(screen.getByLabelText("Lyrics")).toHaveValue("[Chorus]\nhey");
     expect(screen.getByLabelText("Seed")).toHaveValue("31337");
     expect(screen.getByLabelText("Planning mode")).toHaveValue("off");
+  });
+
+  test("the detail view shows the score, and Edit score opens Create with it", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", {
+      body: succeededGeneration({ title: "Scored", request: { style: "waltz", lyrics: "[Verse]\none", seed: 9, cot: "full" } }),
+    });
+    renderApp("/library/gen_01TEST");
+    expect(await screen.findByTestId("score-text")).toHaveTextContent("CDEF GABc");
+    await userEvent.click(screen.getByRole("button", { name: "Edit score" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent(/^\/create$/);
+    });
+    expect(await screen.findByLabelText("Score (ABC)")).toHaveValue(SCORE_TEXT);
+    expect(screen.getByLabelText("Style")).toHaveValue("waltz");
+    expect(screen.getByLabelText("Seed")).toHaveValue("9");
   });
 
   test("the empty state links to Create", async () => {

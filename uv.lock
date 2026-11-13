@@ -1019,7 +1019,7 @@ dev = [
 
 [[package]]
 name = "studio-contracts"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "contracts" }
 dependencies = [
     { name = "pydantic" },
@@ -1055,7 +1055,7 @@ requires-dist = [
 
 [[package]]
 name = "studio-worker"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "worker" }
 dependencies = [
     { name = "fastapi" },

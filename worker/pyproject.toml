@@ -1,6 +1,6 @@
 [project]
 name = "studio-worker"
-version = "0.1.0"
+version = "0.1.1"
 description = "Studio GPU worker: generic job API over music engines"
 requires-python = ">=3.12"
 # yue2_infer (and its torch pin) is deliberately absent: it is installed only in the

@@ -37,14 +37,15 @@ The MVP builds exactly one capability, `song.generate`, and the plumbing around 
 | Worker | Docker image for RunPod that runs YuE2-3B behind an HTTP job API with bearer auth, plus a fake engine for GPU-free runs |
 | Local server | Python service: settings, job submission and polling, artifact download, SQLite library |
 | Web UI | Create page, library, settings, worker status |
-| Operation | `song.generate` from `style` + `lyrics`, with optional `seed`, planning mode (`cot`) and `cfg_scale` |
+| Operation | `song.generate` from `style` + `lyrics`, with optional `seed`, planning mode (`cot`), `cfg_scale` and, added after M5, a supplied ABC score (`abc`) |
+| Score (added after M5, owner request) | The result shows the generated ABC score. "Edit score" loads it into the Create form, where it can be edited and sent as `abc` for a new song. A new song can also start from a pasted score, full (melody and chords, `cot=full`) or melody only (`cot=melody`) |
 | Quality | Automated tests, a GPU smoke script, a RunPod runbook |
 
 **Out of scope, and where each piece plugs in later**
 
 | Later feature | Extension point |
 | --- | --- |
-| Editable ABC score; staged plan, then render | New worker operations over the staged API; a score feature module (server + web) |
+| Score-only planning (a score without audio), then render; score lineage (`parent_id`) | New worker operations over the staged API; a score feature module (server + web). Editing a score and generating from it shipped after M5 as the optional `abc` param |
 | Exact replay from stored tokens | Stored request and artifacts (G4); a new operation that takes artifacts as input |
 | Covers (transcribe, then re-sing) | New operation plus an auxiliary model in the worker |
 | Stems, mastering, VST chains, piano roll, karaoke timing | Local feature modules, or worker operations when GPU-bound |
@@ -111,7 +112,7 @@ Every P0 requirement must be met for the MVP; P1 should be met; P2 is optional. 
 | --- | --- | --- | --- |
 | U-1 | Create form: title, style, lyrics, and an Advanced section (seed, planning mode, `cfg_scale`) | P0 | Empty style or lyrics blocks submit with an inline message |
 | U-2 | Live progress: stage list with the current stage marked, elapsed timer, polling every 1.5 s | P0 | Progress survives a page reload |
-| U-3 | Result: audio player, download for FLAC and for each artifact | P0 | Plays and downloads the stored file |
+| U-3 | Result: audio player, "Download WAV" (24-bit PCM, converted in the browser from the stored FLAC; changed after M5) and a download for each artifact, the FLAC included | P0 | Plays the stored file; downloads a 48 kHz stereo WAV and each stored file |
 | U-4 | Library: newest first, play, delete with confirmation, Reuse settings | P0 (Reuse P1) | Reuse fills the form with the stored request, seed included |
 | U-5 | Settings dialog and a worker status pill (not configured, unreachable, warming up, ready) | P0 | Pill updates within 10 s of a state change |
 | U-6 | Errors shown in plain language with a details toggle | P0 | Each error code in section 6 has a message |
@@ -160,7 +161,7 @@ The server's `queued` and `running` mirror the worker's states. `downloading` ex
 
 The worker exposes a generic job API in which `song.generate` is just the first operation; the local server exposes a library-oriented API to the UI. Pydantic models in `contracts/` are the single source of truth: the OpenAPI files and the TypeScript types are generated from them and never hand-edited.
 
-### Worker API, version 1.0 (all JSON, all under `/v1` except `/healthz`)
+### Worker API, version 1.1 (all JSON, all under `/v1` except `/healthz`)
 
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
@@ -199,6 +200,7 @@ Submit request:
 | `seed` | integer | Optional, 0 to 2147483647. If absent the worker picks one and reports it in `params_resolved.seed` |
 | `cot` | enum | `full` (default), `melody`, `off` |
 | `cfg_scale` | number | Optional, greater than 0 and at most 20 (the engine rejects values above 20; changed in M1). If absent, do not pass it to the engine (use the model default) |
+| `abc` | string | Optional, 1 to 16000 characters, not blank (added after M5; API 1.1). An ABC score the model sings instead of planning one. `cot` must be `full` (the score is read as chord-annotated) or `melody` (melody only); with `off` it is a `validation_error`. Passed verbatim to the engine. The engine's real limit is in tokens (the whole prompt must fit in 15576 tokens); a score that overflows fails the job as `engine_error` |
 
 Job object:
 
@@ -243,7 +245,7 @@ Status and capabilities (abbreviated):
 
 ```json
 {
-  "api_version": "1.0", "worker_version": "0.1.0",
+  "api_version": "1.1", "worker_version": "0.1.1",
   "engine": { "kind": "yue2", "package_version": "0.1.5", "models": { "lm": "m-a-p/YuE2-3B", "vae": "m-a-p/YuE2-Vae" } },
   "operations": [ { "name": "song.generate", "stages": ["plan", "semantic", "synthesis", "decode", "save"], "params_schema": { } } ]
 }
@@ -424,7 +426,7 @@ export interface FeatureModule {
 
 | Feature | Worker | Server | Web | Contract change |
 | --- | --- | --- | --- | --- |
-| Score-first (edit ABC, re-render) | Operations `song.plan` (returns `plan.json`, `score.abc`) and `song.render` (takes a plan or ABC) | `scores` feature; generation gets an optional `parent_id` (new migration) | `score` feature: ABC editor route and nav entry | Additive: new operation schemas |
+| Score-first (edit ABC, re-render). **Partly built after M5:** `song.generate` takes `abc`, and the web edits and re-sends the score; what remains is planning a score without rendering audio | Operations `song.plan` (returns `plan.json`, `score.abc`) and `song.render` (takes a plan or ABC) | `scores` feature; generation gets an optional `parent_id` (new migration) | `score` feature: ABC editor route and nav entry | Additive: new operation schemas |
 | Exact replay | `song.render` accepts stored tokens or latents as input | Sends stored artifacts as inputs | Replay button in the library card | Additive: an input-upload endpoint `POST /v1/uploads`; params may reference `{"upload": id}` |
 | Covers | `song.cover` plus the transcription model in the engine | `covers` feature and source-audio upload | Cover route | Same upload endpoint |
 | Stems, mastering | Operation `audio.stems`, or local processing | Feature module | Route | None |
@@ -521,6 +523,7 @@ Two columns on a wide screen, stacked on a narrow one. The form is on the left, 
 | Title | Optional; defaults to `Untitled <local date and time>` |
 | Style | Multiline, required. Helper text: genre, instruments, vocal character, language, tempo |
 | Lyrics | Multiline monospace, required. Helper text shows section tags such as `[Verse]` and `[Chorus]` |
+| Score (ABC) (collapsed; added after M5) | Optional monospace ABC score. When it has content, a "Score type" choice sets `cot`: full score (melody and chords) or melody only; `off` is disabled. "Clear score" empties it. Blank means the model plans the score |
 | Advanced (collapsed) | Seed (blank means random), planning mode (`full`, `melody`, `off`; default `full`), CFG scale (optional number) |
 | Create | Primary button; disabled while submitting |
 | Example | Fills a sample style and lyrics (below) |
@@ -534,7 +537,7 @@ The result card has one state at a time:
 | Queued | "Waiting for the GPU", plus a Cancel button |
 | Running | The `stages` list with the current stage marked, plus an elapsed timer; no promised duration. A Cancel button |
 | Downloading | "Fetching your song" |
-| Succeeded | Audio player, Download FLAC, the other files under "Files", Reuse settings |
+| Succeeded | Audio player, Download WAV (converted in the browser from the stored FLAC; changed after M5), the score as ABC text with an "Edit score" button (added after M5; shown when there is a `score` artifact), every stored file (the FLAC included) under "Files", Reuse settings |
 | Failed | A plain-language message, a Details toggle (code and message), Retry (new generation, same request) |
 | Canceled | A short note |
 
@@ -797,7 +800,7 @@ Eight questions are still open, and the defaults below let work proceed without 
 
 ### Roadmap after the MVP
 
-1. Score-first workflow: plan operation, ABC editor, render from score.
+1. Score-first workflow: plan operation, then render from the score. (Editing a score and generating from it shipped after M5.)
 2. Exact replay from stored tokens, via the input-upload endpoint.
 3. Pod lifecycle: start, stop and idle shutdown through the RunPod API.
 4. Library polish: takes grouped under a song, comparison, tags.

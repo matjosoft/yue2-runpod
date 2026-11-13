@@ -10,6 +10,7 @@ import smoke_worker
 import soundfile as sf
 from worker_support import TOKEN, StartWorker
 
+from studio_contracts import API_VERSION
 from studio_worker.engines.fake import FakeEngine
 
 
@@ -49,7 +50,12 @@ async def test_happy_path_passes(start_worker: StartWorker) -> None:
     assert code == 0, lines
     text = "\n".join(lines)
     assert lines[-1] == "PASS"
-    for expected in ("healthz: ok", "model: ready", "capabilities: api 1.0", "audio.flac:"):
+    for expected in (
+        "healthz: ok",
+        "model: ready",
+        f"capabilities: api {API_VERSION}",
+        "audio.flac:",
+    ):
         assert expected in text
     for stage in ("plan", "semantic", "synthesis", "decode", "save"):
         assert stage in text
@@ -93,11 +99,11 @@ async def test_model_load_error_fails(start_worker: StartWorker) -> None:
 async def test_incompatible_api_version_fails(
     start_worker: StartWorker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The worker says 1.0; a script that needs major 2 must refuse it.
+    # The worker says 1.x; a script that needs major 2 must refuse it.
     monkeypatch.setattr(smoke_worker, "API_MAJOR", "2")
     code, lines = await _run(start_worker, _args())
     assert code == 1
-    assert lines[-1] == "FAIL: incompatible api_version 1.0 (need 2.x)"
+    assert lines[-1] == f"FAIL: incompatible api_version {API_VERSION} (need 2.x)"
 
 
 @pytest.mark.parametrize("missing", ["score.abc", "result.json"])

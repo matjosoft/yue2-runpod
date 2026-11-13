@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 from server_support import TOKEN, WORKER_URL, FakeWorker, Server, StartServer, StartWorker
 
+from studio_contracts import API_VERSION
+from studio_worker import __version__ as WORKER_VERSION
 from studio_worker.engines.fake import FakeEngine
 
 
@@ -22,8 +24,8 @@ async def test_ready(start_server: StartServer, worker: FakeWorker) -> None:
         assert body["state"] == "ready"
         assert body["error"] is None
         assert body["worker"] == {
-            "api_version": "1.0",
-            "worker_version": "0.1.0",
+            "api_version": API_VERSION,
+            "worker_version": WORKER_VERSION,
             "model_state": "ready",
         }
         health = (await server.request("GET", "/api/health")).json()
@@ -86,7 +88,8 @@ async def test_incompatible(start_server: StartServer, worker: FakeWorker) -> No
     async def handler(request: httpx.Request) -> httpx.Response:
         response = await worker.transport.handle_async_request(request)
         if request.url.path == "/v1/capabilities":
-            body = (await response.aread()).replace(b'"api_version":"1.0"', b'"api_version":"2.0"')
+            current = f'"api_version":"{API_VERSION}"'.encode()
+            body = (await response.aread()).replace(current, b'"api_version":"2.0"')
             return httpx.Response(200, content=body, headers={"content-type": "application/json"})
         return response
 

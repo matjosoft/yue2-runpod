@@ -4,7 +4,14 @@ import { describe, expect, test, vi } from "vitest";
 import { GENERATION_POLL_MS } from "../src/api/queries";
 import { loadDraft, saveDraft } from "../src/components/draft";
 import { EXAMPLE } from "../src/features/create/songForm";
-import { envelope, installDefaultApi, makeGeneration, succeededGeneration, type FakeApi } from "./fakeApi";
+import {
+  envelope,
+  installDefaultApi,
+  makeGeneration,
+  SCORE_TEXT,
+  succeededGeneration,
+  type FakeApi,
+} from "./fakeApi";
 import { renderApp } from "./render";
 
 async function fill(label: string, value: string) {
@@ -82,6 +89,86 @@ describe("Create form (U-1, U-7)", () => {
       operation: "song.generate",
       request: { style: "rock", lyrics: "[Verse]\nhey", cot: "melody", seed: 42, cfg_scale: 1.5 },
     });
+  });
+
+  test("a score is sent verbatim with the chosen score type", async () => {
+    const fake = installDefaultApi();
+    createRoute(fake);
+    renderApp("/create");
+    await screen.findByRole("button", { name: "Create" });
+    await fill("Style", "folk");
+    await fill("Lyrics", "[Verse]\nhey");
+    expect(screen.queryByRole("radio", { name: "Melody only" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("Score (ABC)", { selector: "summary" }));
+    const score = "X:1\nM:6/8\nL:1/8\nK:D\n|: dfa afd :|\n";
+    await fill("Score (ABC)", score);
+    // Full is the default planning mode; a score lets the user say it is melody only.
+    expect(screen.getByRole("radio", { name: "Full score (melody and chords)" })).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: "Melody only" }));
+    expect(screen.getByLabelText("Planning mode")).toHaveValue("melody");
+    expect(within(screen.getByLabelText("Planning mode")).getByRole("option", { name: "off" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => {
+      expect(fake.callsTo("POST", "/api/generations")).toHaveLength(1);
+    });
+    expect(fake.callsTo("POST", "/api/generations")[0]?.body).toEqual({
+      operation: "song.generate",
+      request: { style: "folk", lyrics: "[Verse]\nhey", cot: "melody", abc: score },
+    });
+  });
+
+  test("a blank score is left out of the request", async () => {
+    const fake = installDefaultApi();
+    createRoute(fake);
+    renderApp("/create");
+    await screen.findByRole("button", { name: "Create" });
+    await fill("Style", "folk");
+    await fill("Lyrics", "la");
+    await userEvent.click(screen.getByText("Score (ABC)", { selector: "summary" }));
+    await fill("Score (ABC)", "  \n ");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => {
+      expect(fake.callsTo("POST", "/api/generations")).toHaveLength(1);
+    });
+    expect(fake.callsTo("POST", "/api/generations")[0]?.body).toEqual({
+      operation: "song.generate",
+      request: { style: "folk", lyrics: "la", cot: "full" },
+    });
+  });
+
+  test("a score with planning mode off is refused inline", async () => {
+    const fake = installDefaultApi();
+    renderApp("/create");
+    await screen.findByRole("button", { name: "Create" });
+    await fill("Style", "folk");
+    await fill("Lyrics", "la");
+    await userEvent.selectOptions(screen.getByLabelText("Planning mode"), "off");
+    await userEvent.click(screen.getByText("Score (ABC)", { selector: "summary" }));
+    await fill("Score (ABC)", "X:1\nK:C\nC|");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(screen.getByText("Choose whether the score is a full score or a melody only.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Score (ABC)")).toHaveAttribute("aria-invalid", "true");
+    expect(fake.callsTo("POST", "/api/generations")).toHaveLength(0);
+  });
+
+  test("a 422 for the score shows the field message on the score", async () => {
+    const fake = installDefaultApi();
+    fake.on("POST", "/api/generations", {
+      status: 422,
+      body: envelope("validation_error", "Invalid params", {
+        fields: [{ loc: "request.abc", msg: "String should have at most 16000 characters" }],
+      }),
+    });
+    renderApp("/create");
+    await screen.findByRole("button", { name: "Create" });
+    await fill("Style", "folk");
+    await fill("Lyrics", "la");
+    await userEvent.click(screen.getByText("Score (ABC)", { selector: "summary" }));
+    await fill("Score (ABC)", "X:1\nK:C\nC|");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText("String should have at most 16000 characters")).toBeInTheDocument();
+    expect(screen.getByLabelText("Score (ABC)")).toHaveValue("X:1\nK:C\nC|");
+    expect(screen.getByRole("alert")).toHaveTextContent("Some fields are not valid.");
   });
 
   test("a seed that is not a whole number is refused inline", async () => {
@@ -254,7 +341,7 @@ describe("result card (U-2, U-3, U-6)", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(GENERATION_POLL_MS);
     });
-    await screen.findByRole("link", { name: "Download FLAC" });
+    await screen.findByRole("button", { name: "Download WAV" });
     const atTerminal = calls();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(GENERATION_POLL_MS * 3);
@@ -262,21 +349,149 @@ describe("result card (U-2, U-3, U-6)", () => {
     expect(calls()).toBe(atTerminal);
   });
 
-  test("succeeded shows the player, Download FLAC and the other files (U-3)", async () => {
+  test("succeeded shows the player, Download WAV and every file (U-3)", async () => {
     const fake = installDefaultApi();
     fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
     const { container } = renderApp("/create?gen=gen_01TEST");
-    const download = await screen.findByRole("link", { name: "Download FLAC" });
-    expect(download).toHaveAttribute("href", "/api/generations/gen_01TEST/artifacts/audio.flac");
+    await screen.findByRole("button", { name: "Download WAV" });
     const audio = container.querySelector("audio");
     expect(audio).toHaveAttribute("src", "/api/generations/gen_01TEST/artifacts/audio.flac");
     expect(audio).toHaveAttribute("controls");
+    // The stored FLAC is still downloadable as is, under Files.
+    expect(screen.getByRole("link", { name: "audio.flac" })).toHaveAttribute(
+      "href",
+      "/api/generations/gen_01TEST/artifacts/audio.flac",
+    );
     expect(screen.getByRole("link", { name: "score.abc" })).toHaveAttribute(
       "href",
       "/api/generations/gen_01TEST/artifacts/score.abc",
     );
     expect(screen.getByRole("link", { name: "result.json" })).toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
+  });
+
+  test("Download WAV converts the stored audio and saves audio.wav", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
+    fake.on("GET", "/api/generations/gen_01TEST/artifacts/audio.flac", { text: "flac-bytes" });
+    const decoded = { numberOfChannels: 2, sampleRate: 48000, getChannelData: () => new Float32Array([0, 0.5]) };
+    const contexts: number[] = [];
+    vi.stubGlobal(
+      "OfflineAudioContext",
+      class {
+        constructor(_channels: number, _length: number, rate: number) {
+          contexts.push(rate);
+        }
+        decodeAudioData() {
+          return Promise.resolve(decoded);
+        }
+      },
+    );
+    const blobs: Blob[] = [];
+    // jsdom has no object URLs; add them for this test only.
+    const { createObjectURL, revokeObjectURL } = URL;
+    URL.createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return "blob:wav";
+    };
+    URL.revokeObjectURL = () => undefined;
+    const saved: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(`${this.download} ${this.href}`);
+    });
+
+    renderApp("/create?gen=gen_01TEST");
+    await userEvent.click(await screen.findByRole("button", { name: "Download WAV" }));
+    await waitFor(() => {
+      expect(saved).toEqual(["audio.wav blob:wav"]);
+    });
+    expect(fake.callsTo("GET", "/api/generations/gen_01TEST/artifacts/audio.flac")).toHaveLength(1);
+    expect(contexts).toEqual([48000]); // not a FLAC header, so the 48 kHz default
+    expect(blobs[0]?.type).toBe("audio/wav");
+    expect(blobs[0]?.size).toBe(44 + 2 * 2 * 3);
+    click.mockRestore();
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+  });
+
+  test("Download WAV says so when the audio cannot be fetched", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
+    fake.on("GET", "/api/generations/gen_01TEST/artifacts/audio.flac", {
+      status: 404,
+      body: envelope("not_found", "Unknown artifact"),
+    });
+    renderApp("/create?gen=gen_01TEST");
+    await userEvent.click(await screen.findByRole("button", { name: "Download WAV" }));
+    expect(await screen.findByText("The WAV file could not be made.")).toBeInTheDocument();
+  });
+
+  test("succeeded shows the generated score as text", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
+    renderApp("/create?gen=gen_01TEST");
+    expect(await screen.findByTestId("score-text")).toHaveTextContent("K:C");
+    expect(screen.getByTestId("score-text").textContent).toBe(SCORE_TEXT);
+    expect(fake.callsTo("GET", "/api/generations/gen_01TEST/artifacts/score.abc")).toHaveLength(1);
+  });
+
+  test("no score section when the song has no score (planning off)", async () => {
+    const fake = installDefaultApi();
+    const gen = succeededGeneration();
+    fake.on("GET", "/api/generations/gen_01TEST", {
+      body: { ...gen, artifacts: gen.artifacts.filter((a) => a.role !== "score") },
+    });
+    renderApp("/create?gen=gen_01TEST");
+    await screen.findByRole("button", { name: "Download WAV" });
+    expect(screen.queryByRole("button", { name: "Edit score" })).not.toBeInTheDocument();
+  });
+
+  test("a score that fails to load says so", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
+    fake.on("GET", "/api/generations/gen_01TEST/artifacts/score.abc", {
+      status: 404,
+      body: envelope("not_found", "Unknown artifact"),
+    });
+    renderApp("/create?gen=gen_01TEST");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit score" })).toBeDisabled();
+  });
+
+  test("Edit score fills the form with the song's settings and its score, ready to edit and create", async () => {
+    const fake = installDefaultApi();
+    createRoute(fake);
+    fake.on("GET", "/api/generations/gen_01TEST", {
+      body: succeededGeneration({ request: { style: "funk", lyrics: "[Verse]\nyo", seed: 4242, cot: "melody" } }),
+    });
+    renderApp("/create?gen=gen_01TEST");
+    await screen.findByTestId("score-text");
+    await userEvent.click(screen.getByRole("button", { name: "Edit score" }));
+    expect(screen.getByLabelText("Score (ABC)")).toHaveValue(SCORE_TEXT);
+    expect(screen.getByLabelText("Style")).toHaveValue("funk");
+    expect(screen.getByLabelText("Seed")).toHaveValue("4242");
+    expect(screen.getByRole("radio", { name: "Melody only" })).toBeChecked();
+
+    const edited = SCORE_TEXT.replace("CDEF GABc", "EDCD EEE2");
+    await fill("Score (ABC)", edited);
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => {
+      expect(fake.callsTo("POST", "/api/generations")).toHaveLength(1);
+    });
+    expect(fake.callsTo("POST", "/api/generations")[0]?.body).toEqual({
+      operation: "song.generate",
+      request: { style: "funk", lyrics: "[Verse]\nyo", seed: 4242, cot: "melody", abc: edited },
+    });
+  });
+
+  test("Edit score on a full-planned song keeps full", async () => {
+    const fake = installDefaultApi();
+    fake.on("GET", "/api/generations/gen_01TEST", { body: succeededGeneration() });
+    renderApp("/create?gen=gen_01TEST");
+    await screen.findByTestId("score-text");
+    await userEvent.click(screen.getByRole("button", { name: "Edit score" }));
+    expect(screen.getByRole("radio", { name: "Full score (melody and chords)" })).toBeChecked();
+    expect(screen.getByLabelText("Planning mode")).toHaveValue("full");
   });
 
   test("Reuse settings fills the form with the stored request, seed included", async () => {

@@ -1,5 +1,5 @@
-import { useId, type FormEvent, type ReactNode } from "react";
-import { COT_MODES, EXAMPLE, type CotMode, type FieldErrors, type SongFormValues } from "./songForm";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { COT_MODES, EXAMPLE, SCORE_TYPES, type CotMode, type FieldErrors, type SongFormValues } from "./songForm";
 
 interface Props {
   values: SongFormValues;
@@ -42,6 +42,11 @@ function Field(props: {
 
 export function SongForm({ values, errors, submitting, onChange, onSubmit, children }: Props) {
   const id = useId();
+  const hasScore = values.abc.trim() !== "";
+  // The score section opens by itself when it has content or an error, and otherwise
+  // remembers what the user last did with it. React only writes ``open`` when the
+  // computed value changes, so the user can still close it while it has content.
+  const [scoreOpen, setScoreOpen] = useState(false);
   const set = <K extends keyof SongFormValues>(key: K, value: SongFormValues[K]) => {
     onChange({ ...values, [key]: value });
   };
@@ -107,6 +112,73 @@ export function SongForm({ values, errors, submitting, onChange, onSubmit, child
           />
         )}
       </Field>
+      <details
+        className="card"
+        open={scoreOpen || hasScore || Boolean(errors.abc)}
+        onToggle={(e) => {
+          setScoreOpen(e.currentTarget.open);
+        }}
+      >
+        <summary className="cursor-pointer font-medium">Score (ABC){hasScore ? " · provided" : ""}</summary>
+        <div className="mt-3 space-y-4">
+          <Field
+            id={`${id}-abc`}
+            label="Score (ABC)"
+            help="Optional. An ABC score for the model to sing instead of writing its own. Blank means the model plans one. “Edit score” on a finished song puts its score here."
+            error={errors.abc}
+          >
+            {(describedBy, invalid) => (
+              <textarea
+                id={`${id}-abc`}
+                className="field font-mono text-sm"
+                rows={10}
+                spellCheck={false}
+                value={values.abc}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                onChange={(e) => {
+                  set("abc", e.target.value);
+                }}
+              />
+            )}
+          </Field>
+          {hasScore && (
+            <fieldset>
+              <legend className="font-medium">Score type</legend>
+              <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1">
+                {SCORE_TYPES.map((t) => (
+                  <label key={t.cot} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`${id}-score-type`}
+                      value={t.cot}
+                      checked={values.cot === t.cot}
+                      onChange={() => {
+                        set("cot", t.cot);
+                      }}
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                Full means the score has chord symbols; melody only means it has none. This sets the planning mode.
+              </p>
+            </fieldset>
+          )}
+          {hasScore && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                set("abc", "");
+              }}
+            >
+              Clear score
+            </button>
+          )}
+        </div>
+      </details>
       <details className="card" open={Boolean(errors.seed ?? errors.cot ?? errors.cfg_scale) || undefined}>
         <summary className="cursor-pointer font-medium">Advanced</summary>
         <div className="mt-3 space-y-4">
@@ -137,7 +209,8 @@ export function SongForm({ values, errors, submitting, onChange, onSubmit, child
                 }}
               >
                 {COT_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
+                  // A score needs planning, so "off" is not offered while there is one.
+                  <option key={mode} value={mode} disabled={hasScore && mode === "off"}>
                     {mode}
                   </option>
                 ))}

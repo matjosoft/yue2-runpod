@@ -268,12 +268,16 @@ def _pinned(repo: str, revision: str | None) -> str:
 
 def _request_kwargs(p: SongParams) -> dict[str, Any]:
     """``SongRequest`` fields. The package rejects ``seed=None``, so the operation always
-    resolves one; ``cfg_scale`` is left out when absent so the model default applies."""
+    resolves one; ``cfg_scale`` is left out when absent so the model default applies.
+    A supplied ``abc`` score makes ``plan`` tokenize it instead of generating one
+    (``pipeline.py:260-264``); it is left out when absent, which is the package default."""
     if p.seed is None:
         raise ValueError("seed must be resolved before calling the engine")
     kwargs: dict[str, Any] = {"style": p.style, "lyrics": p.lyrics, "cot": p.cot, "seed": p.seed}
     if p.cfg_scale is not None:
         kwargs["cfg_scale"] = p.cfg_scale
+    if p.abc is not None:
+        kwargs["abc"] = p.abc
     return kwargs
 
 

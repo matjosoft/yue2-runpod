@@ -272,3 +272,25 @@ Server:
 Docs:
 
 - **`docs/architecture.md` and `docs/adding-features.md`** are new. Milestone plans are kept in `docs/plans/`.
+
+## After M5: editable ABC score (2026-11-07)
+
+Owner request: show the generated ABC score, edit it and generate again from it, and start a new song from a supplied score (full score or melody only) together with style and lyrics. PRD §2 listed "Editable ABC score" as out of scope, so this widens the scope at the owner's request. The PRD is updated (§2, §6, §7, §9, §14).
+
+- **An optional `abc` param on `song.generate`, not the `song.plan` / `song.render` pair from PRD §7.** yue2's own `plan()` takes `abc=` and then tokenizes the score instead of generating one (`docs/yue2-api-notes.md` §3), so one optional field covers both "regenerate from an edited score" and "new song from a score". The stages, the job object, the server and its tables do not change. `song.plan` (a score without audio) and `song.render` are still the way to add score-only planning later; nothing here blocks them.
+- **`full` and `melody` are the score types.** The wheel's instructions say `full` is a chord-annotated score and `melody` a melody-only score without chord symbols. The UI calls them "Full score (melody and chords)" and "Melody only". The engine does not check which one the text is.
+- **Validation.** `abc` is 1 to 16000 characters and not blank, and `cot=off` with a score is a 422 on `params.abc` (the engine would reject both). 16000 characters is an app-side guardrail like the other limits. The engine's real limit is in tokens, and how many tokens a 16000-character score takes is **not measured**. A score that overflows the 15576-token prompt budget fails the job as `engine_error`.
+- **Worker API 1.0 → 1.1.** The change is additive, and the server only compares majors. A worker image built before this change rejects `abc` with 422 `extra_forbidden`. The UI shows that message under the score field, so the image must be rebuilt to use scores.
+- **The server is unchanged.** It already stores and forwards `request` as an opaque dict, and the worker validates it. A server test proves the round trip.
+- **Web.** The score lives in the `song.generate` views, not in a new feature module, because it is part of that operation's request and result. `SongResult` shows the `score` artifact (chosen by role) as text, with "Edit score". That fills the Create form through the existing draft mechanism with the song's request, seed included, plus the score. A `melody` song stays `melody`, and anything else becomes `full`. Keeping the seed means a regeneration differs only by the edit. The text is read by `useArtifactText` in `api/queries.ts`, once per artifact (artifacts never change).
+- **Not built:** sheet-music rendering (the score is shown as ABC text), ABC syntax checking, and a link between a song and the song whose score it edited.
+
+## After M5: download as WAV (2026-11-12)
+
+Owner request: the song download is WAV instead of FLAC. The owner chose a UI-only change.
+
+- **Only the downloaded file changes.** The worker, the server, the artifact set, the API contract (PRD §6) and the engine facts (§7) keep `audio.flac`. Storage and transfer from RunPod stay FLAC, which is about half the size of the WAV.
+- **"Download WAV" converts in the browser.** `web/src/components/song/wav.ts` fetches the primary audio, decodes it with `OfflineAudioContext` at the file's own rate (read from the FLAC STREAMINFO, 48 kHz when absent, so decoding does not resample) and writes a 24-bit PCM WAV (owner choice). 24-bit samples survive the float32 decode exactly. The file is named `audio.wav`.
+- **The FLAC is still downloadable** under "Files", which now lists every stored file, so U-3's "download for each artifact" still holds.
+- PRD U-3 and the §9 Succeeded row are updated. G1, D-2, AT-1 and AT-13 still talk about the stored FLAC and stay true.
+- **Cost:** a 3.6-minute song is about 60 MB of WAV built in browser memory; the button shows "Preparing WAV…" meanwhile.

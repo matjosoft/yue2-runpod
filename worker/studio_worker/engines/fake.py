@@ -168,6 +168,9 @@ def _seed(p: SongParams) -> int:
 
 
 def _fake_abc(p: SongParams) -> str:
+    """The score the fake "plans". A supplied score is used verbatim, as yue2 does."""
+    if p.abc is not None:
+        return p.abc
     return f"X:1\nT:fake\nM:4/4\nL:1/8\nK:C\n% seed {_seed(p)}\nCDEF GABc|\n"
 
 

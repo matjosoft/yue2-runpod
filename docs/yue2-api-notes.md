@@ -87,7 +87,15 @@ Behaviours that matter to the worker:
 - **`style` and `lyrics`** must be `str`. Otherwise `TypeError`. `tags=` is an alias for `style`, and the two must not disagree (`pipeline.py:225-231`).
 - **`seed`** must be an `int` in `[0, 2**63)`. If it is omitted the default is **831001**. **`seed=None` raises `ValueError`**, so the worker must always pass an int.
 - **`id`** must match `[A-Za-z0-9][A-Za-z0-9_.-]{0,179}`.
-- **`abc`**, when given, must be non-empty and needs `cot` to be `melody` or `full`.
+- **`abc`**, when given, must be non-empty (after `strip()`) and needs `cot` to be `melody` or `full` (`protocol.py:99-100`, `ValueError("External ABC requires nonempty text and cot=melody/full")`).
+
+**What `cot` means for a score** (read after M5, same wheel). `cot` picks the instruction at the start of the prompt (`protocol.py:14-18`):
+
+- `full`: "Generate a chord-annotated ABC transcription, then generate music with codec tokens from the given conditions."
+- `melody`: "Generate a melody-only ABC transcription without chord symbols, then generate music with codec tokens from the given conditions."
+- `off`: "Generate music with codec tokens from the given conditions."
+
+**A supplied score** (`pipeline.py:260-264`). When `request.abc` is set, `plan()` does not generate: it tokenizes the text with the model's tokenizer and returns a `SymbolicPlan` with that exact text as `abc`, timing `{"seconds": 0., "output_tokens": 0, "external_prefix_tokens": len(ids)}` and `truncated=False`. The text is used verbatim. Nothing checks that it is valid ABC, or that a `melody` score has no chords. The token ids must stay inside the ordinary text vocabulary (`protocol.py:124-125`), which any text tokenized by the model does. There is no separate score length limit: the 4096-token cap applies only to a generated score. The supplied score is part of the semantic prefix, so prefix plus 9000 must fit in 24576 (`sampling.py:62-63`), or `generate_semantic` raises `ValueError`. CFG's negative prefix keeps the same score (`protocol.py:129-138`). `save_artifacts` then writes it as `score.abc`, as for a generated one.
 - **`cfg_scale`** may be `None` or a finite number in **`[0, 20]`**. `None` means the default guidance, which is 1.0, or 1.01 when `cot="off"` (`:104-106`).
 
 Sampling defaults (`protocol.py:21-55`):

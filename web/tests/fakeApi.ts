@@ -19,6 +19,8 @@ export interface FakeRequest {
 export interface FakeResponse {
   status?: number;
   body?: unknown;
+  /** A raw text body (an artifact such as a score) instead of JSON. */
+  text?: string;
 }
 
 type Handler = (req: FakeRequest) => FakeResponse | Promise<FakeResponse>;
@@ -57,6 +59,9 @@ export function installFakeApi(): FakeApi {
       : { status: 404, body: envelope("not_found", `no fake route for ${req.method} ${req.path}`) };
     const status = res.status ?? 200;
     if (status === 204) return new Response(null, { status });
+    if (res.text !== undefined) {
+      return new Response(res.text, { status, headers: { "content-type": "text/vnd.abc" } });
+    }
     return new Response(JSON.stringify(res.body ?? null), {
       status,
       headers: { "content-type": "application/json" },
@@ -84,6 +89,10 @@ export function envelope(
 }
 
 export const SONG_STAGES = ["plan", "semantic", "synthesis", "decode", "save"];
+
+/** What the default route serves for any generation's score.abc. */
+export const SCORE_TEXT = "X:1\nT:fake\nM:4/4\nL:1/8\nK:C\n|: CDEF GABc :|\n";
+export const SCORE_PATH = /^\/api\/generations\/[^/]+\/artifacts\/score\.abc$/;
 
 export function makeGeneration(overrides: Partial<Generation> = {}): Generation {
   const id = overrides.id ?? "gen_01TEST";
@@ -151,5 +160,6 @@ export function installDefaultApi(): FakeApi {
   fake.on("GET", "/api/capabilities", { body: capabilities() });
   fake.on("GET", "/api/settings", { body: { worker_url: "http://127.0.0.1:8000", token_set: true } });
   fake.on("GET", "/api/generations", { body: { items: [], next_cursor: null } });
+  fake.on("GET", SCORE_PATH, { text: SCORE_TEXT });
   return fake;
 }

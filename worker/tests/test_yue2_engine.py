@@ -167,6 +167,29 @@ def test_cfg_scale_is_passed_when_set(stub: yue2_stub.StubState, tmp_path: Path)
     assert '"cfg_scale": 1.5' in config
 
 
+SCORE = "X:1\nM:4/4\nL:1/8\nK:G\n|: GABc dedB :|\n"
+
+
+@pytest.mark.parametrize("cot", ["full", "melody"])
+def test_a_supplied_score_is_passed_and_saved(
+    stub: yue2_stub.StubState, tmp_path: Path, cot: str
+) -> None:
+    _run_staged(_loaded(), _params(cot=cot, abc=SCORE), tmp_path)
+    plan_kw = stub.kwargs("plan")
+    assert plan_kw["abc"] == SCORE and plan_kw["cot"] == cot
+    assert (tmp_path / "score.abc").read_text(encoding="utf-8") == SCORE
+
+
+def test_no_score_kwarg_when_absent(stub: yue2_stub.StubState, tmp_path: Path) -> None:
+    _run_staged(_loaded(), _params(), tmp_path)
+    assert "abc" not in stub.kwargs("plan")  # the package default: plan a score
+
+
+def test_generate_single_call_passes_the_score(stub: yue2_stub.StubState, tmp_path: Path) -> None:
+    _loaded().generate(_params(cot="melody", abc=SCORE), tmp_path)
+    assert stub.kwargs("__call__")["abc"] == SCORE
+
+
 def test_seed_must_be_resolved(stub: yue2_stub.StubState) -> None:
     with pytest.raises(ValueError, match="seed"):
         _loaded().plan(_params(seed=None))

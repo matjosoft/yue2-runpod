@@ -11,6 +11,7 @@ import {
   api,
   call,
   isTerminal,
+  toApiError,
   type Generation,
   type GenerationCreate,
   type SettingsUpdate,
@@ -28,6 +29,7 @@ export const queryKeys = {
   settings: ["settings"] as const,
   generations: ["generations"] as const,
   generation: (id: string) => ["generation", id] as const,
+  artifactText: (url: string) => ["artifact-text", url] as const,
 };
 
 export function useHealth() {
@@ -59,6 +61,33 @@ export function useGeneration(id: string | null | undefined) {
       if (error instanceof ApiError && error.status === 404) return false;
       return GENERATION_POLL_MS;
     },
+  });
+}
+
+/** A stored text artifact (a score, say), read from the URL the server gave for it.
+ * Stored artifacts never change, so it is fetched once. */
+export function useArtifactText(url: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.artifactText(url ?? ""),
+    queryFn: async () => {
+      let response: Response;
+      try {
+        // Resolved like the API client's baseUrl: artifact URLs are server-relative.
+        response = await globalThis.fetch(new URL(url ?? "", window.location.origin));
+      } catch {
+        throw new ApiError(
+          { code: "server_unreachable", message: "No response from the app server", retryable: true, details: {} },
+          0,
+        );
+      }
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        throw toApiError(body, response.status);
+      }
+      return response.text();
+    },
+    enabled: Boolean(url),
+    staleTime: Infinity,
   });
 }
 

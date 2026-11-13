@@ -87,6 +87,25 @@ async def test_bad_params_are_422_with_field_locations(worker: Worker) -> None:
     assert "x" * 100 not in response.text  # the rejected input is not echoed
 
 
+async def test_a_supplied_score_comes_back_as_the_score_artifact(worker: Worker) -> None:
+    score = "X:1\nM:3/4\nL:1/8\nK:F\n|: F2 A2 c2 | f4 c2 :|\n"
+    job = (await worker.submit(song_params(cot="melody", abc=score))).json()
+    assert job["params"]["abc"] == score
+    done = await worker.wait_for(job["id"], "succeeded")
+    roles = {a["name"]: a["role"] for a in done["artifacts"]}
+    assert roles["score.abc"] == "score"
+    response = await worker.client.get(f"/v1/jobs/{job['id']}/artifacts/score.abc")
+    assert response.status_code == 200
+    assert response.content.decode("utf-8") == score
+
+
+async def test_a_score_without_planning_is_422(worker: Worker) -> None:
+    response = await worker.submit(song_params(cot="off", abc="X:1\nK:C\nC|"))
+    assert response.status_code == 422
+    fields = response.json()["error"]["details"]["fields"]
+    assert [f["loc"] for f in fields] == ["params.abc"]
+
+
 async def test_malformed_body_is_422(worker: Worker) -> None:
     response = await worker.client.post(
         "/v1/jobs", content=b"{nope", headers={"Content-Type": "application/json"}

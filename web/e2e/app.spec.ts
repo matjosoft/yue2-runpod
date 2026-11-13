@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { WORKER_KEY, WORKER_URL } from "./env";
 
@@ -14,6 +15,15 @@ function flacInfo(bytes: Uint8Array): { sampleRate: number; channels: number } {
     sampleRate: (b(18) << 12) | (b(19) << 4) | (b(20) >> 4),
     channels: ((b(20) >> 1) & 0x07) + 1,
   };
+}
+
+/** Sample rate, channel count and bit depth from a PCM WAV file's fmt chunk. */
+function wavInfo(bytes: Uint8Array): { sampleRate: number; channels: number; bits: number } {
+  const text = (o: number, n: number) => String.fromCharCode(...bytes.slice(o, o + n));
+  if (text(0, 4) !== "RIFF" || text(8, 8) !== "WAVEfmt ") throw new Error("not a WAV file");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint16(20, true) !== 1) throw new Error("not PCM");
+  return { sampleRate: view.getUint32(24, true), channels: view.getUint16(22, true), bits: view.getUint16(34, true) };
 }
 
 async function closeSettings(page: Page) {
@@ -67,7 +77,7 @@ test("configure, create, watch progress, reload, play, list, delete (AT-1)", asy
   await expect(stages.locator('[aria-current="step"]')).toHaveCount(1);
 
   // Follow the run to the end: the current stage only moves forward, in declared order.
-  const download = page.getByRole("link", { name: "Download FLAC" });
+  const download = page.getByRole("button", { name: "Download WAV" });
   const deadline = Date.now() + 45_000;
   while (!(await download.isVisible()) && Date.now() < deadline) {
     const index = await currentIndex();
@@ -90,10 +100,16 @@ test("configure, create, watch progress, reload, play, list, delete (AT-1)", asy
       }),
     )
     .toBe(true);
-  const href = (await download.getAttribute("href")) ?? "";
+  const href = (await page.getByRole("link", { name: "audio.flac" }).getAttribute("href")) ?? "";
   const flac = await request.get(href);
   expect(flac.status()).toBe(200);
   expect(flacInfo(new Uint8Array(await flac.body()))).toEqual({ sampleRate: 48000, channels: 2 });
+
+  // Download WAV converts it in the browser: a 24-bit PCM WAV, still 48 kHz stereo.
+  const [saved] = await Promise.all([page.waitForEvent("download"), download.click()]);
+  expect(saved.suggestedFilename()).toBe("audio.wav");
+  const wavPath = await saved.path();
+  expect(wavInfo(new Uint8Array(await readFile(wavPath)))).toEqual({ sampleRate: 48000, channels: 2, bits: 24 });
 
   // The library lists it; delete it with confirmation and its files are gone.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Library" }).click();
@@ -105,6 +121,46 @@ test("configure, create, watch progress, reload, play, list, delete (AT-1)", asy
   await expect(row).toHaveCount(0);
   expect((await request.get(href)).status()).toBe(404);
   expect((await request.get(`/api/generations/${id}`)).status()).toBe(404);
+});
+
+test("show the generated score, edit it, and create again from the edited score", async ({ page, request }) => {
+  const result = page.getByRole("region", { name: "Result" });
+  const finished = async () => {
+    await expect(result.getByRole("button", { name: "Download WAV" })).toBeVisible({ timeout: 60_000 });
+    return new URL(page.url()).searchParams.get("gen") ?? "";
+  };
+
+  // A first song, with the score left to the model.
+  await page.goto("/create");
+  await page.getByRole("button", { name: "Example" }).click();
+  await page.getByLabel("Title").fill("Score E2E");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(/\/create\?gen=gen_/);
+  const first = await finished();
+  const planned = (await result.getByTestId("score-text").textContent()) ?? "";
+  expect(planned).toContain("K:");
+
+  // Edit score: the form gets the score and the song's settings; change it, melody only.
+  await result.getByRole("button", { name: "Edit score" }).click();
+  const scoreField = page.getByLabel("Score (ABC)");
+  await expect(scoreField).toHaveValue(planned);
+  const edited = "X:1\nT:edited\nM:3/4\nL:1/8\nK:G\n|: G2 B2 d2 | g4 d2 :|\n";
+  await scoreField.fill(edited);
+  await page.getByRole("radio", { name: "Melody only" }).check();
+  await page.getByLabel("Title").fill("Score E2E edited");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).not.toHaveURL(new RegExp(`gen=${first}`));
+  const second = await finished();
+
+  // The new song was made from the edited score, and its own score shows it.
+  await expect(result.getByTestId("score-text")).toHaveText(edited);
+  const stored = (await (await request.get(`/api/generations/${second}`)).json()) as {
+    request: Record<string, unknown>;
+  };
+  expect(stored.request["abc"]).toBe(edited);
+  expect(stored.request["cot"]).toBe("melody");
+
+  for (const id of [first, second]) expect((await request.delete(`/api/generations/${id}`)).status()).toBe(204);
 });
 
 test("empty fields are blocked; an over-limit style shows the API's field message (AT-2)", async ({ page }) => {

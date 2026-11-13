@@ -143,6 +143,38 @@ def test_song_params_forbid_extra() -> None:
     assert exc.value.errors()[0]["type"] == "extra_forbidden"
 
 
+@pytest.mark.parametrize("cot", ["full", "melody"])
+def test_song_params_accepts_a_score_with_planning(cot: str) -> None:
+    score = "X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc|\n"
+    p = SongParams.model_validate(song(cot=cot, abc=score))
+    assert p.abc == score  # kept verbatim, whitespace included
+    assert p.model_dump(mode="json", exclude_none=True)["abc"] == score
+
+
+def test_song_params_score_is_optional_and_omitted_when_absent() -> None:
+    assert SongParams.model_validate(song()).abc is None
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        song(cot="off", abc="X:1\nK:C\nC|"),  # the engine needs full or melody
+        song(abc=""),
+        song(abc="  \n\t"),  # the engine rejects a blank score
+        song(abc="x" * 16001),
+        song(abc=123),
+    ],
+)
+def test_song_params_rejects_bad_scores(params: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError) as exc:
+        SongParams.model_validate(params)
+    assert exc.value.errors()[0]["loc"] == ("abc",)
+
+
+def test_song_params_score_limit() -> None:
+    SongParams.model_validate(song(abc="x" * 16000))
+
+
 def test_song_params_rejects_string_seed_and_bool_cfg() -> None:
     with pytest.raises(ValidationError):
         SongParams.model_validate(song(seed="12"))

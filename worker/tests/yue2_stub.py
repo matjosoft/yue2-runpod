@@ -104,6 +104,11 @@ class SongRequest:
             math.isfinite(self.cfg_scale) and 0 <= self.cfg_scale <= 20
         ):
             raise ValueError("cfg_scale must be in [0, 20]")
+        # protocol.py:99-100
+        if self.abc is not None and (
+            self.cot == "off" or not isinstance(self.abc, str) or not self.abc.strip()
+        ):
+            raise ValueError("External ABC requires nonempty text and cot=melody/full")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -255,6 +260,10 @@ class YuE2Pipeline:
         request = request or self._request(style, lyrics, tags=tags, **kwargs)
         if request.cot == "off":
             return SymbolicPlan(request, None, [], [1, 2, 3])
+        if request.abc is not None:  # pipeline.py:260-264: tokenized, not generated
+            ids = [ord(c) for c in request.abc]
+            timing = {"seconds": 0.0, "output_tokens": 0, "external_prefix_tokens": len(ids)}
+            return SymbolicPlan(request, request.abc, ids, [1, 2, 3, *ids], timing)
         abc = f"X:1\nK:C\n% seed {request.seed}\nCDEF|\n"
         return SymbolicPlan(request, abc, [7, 8, 9], [1, 2, 3, 7, 8, 9], {"seconds": 0.1})
 

@@ -35,8 +35,9 @@ from studio_contracts.worker import (
     WorkerStatus,
 )
 
-API_VERSION = "1.0"
-"""Worker API version, ``major.minor``. A server refuses a worker whose major differs."""
+API_VERSION = "1.1"
+"""Worker API version, ``major.minor``. A server refuses a worker whose major differs.
+1.1 added the optional ``abc`` param to ``song.generate`` (additive)."""
 
 __all__ = [
     "API_VERSION",

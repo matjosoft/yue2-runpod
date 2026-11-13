@@ -87,6 +87,26 @@ async def test_over_limit_style_is_relayed_as_422_and_not_stored(server: Server)
     assert (await server.request("GET", "/api/generations")).json()["items"] == []
 
 
+async def test_a_score_round_trips_through_the_generic_server(server: Server) -> None:
+    """The server stores and relays ``abc`` without knowing about it, and the score the
+    worker sang comes back as the ``score`` artifact (edit-and-regenerate)."""
+    score = "X:1\nM:4/4\nL:1/8\nK:Em\n|: E2 G2 B2 e2 :|\n"
+    gen = (await server.create(song_request(cot="full", abc=score))).json()
+    assert gen["request"]["abc"] == score
+    done = await server.wait_for(gen["id"], "succeeded", tick=True)
+    found = [a for a in done["artifacts"] if a["role"] == "score"]
+    assert len(found) == 1
+    response = await server.request("GET", found[0]["url"])
+    assert response.status_code == 200
+    assert response.content.decode("utf-8") == score
+
+
+async def test_a_score_without_planning_is_relayed_as_422(server: Server) -> None:
+    response = await server.create(song_request(cot="off", abc="X:1\nK:C\nC|"))
+    assert response.status_code == 422
+    assert response.json()["error"]["details"]["fields"][0]["loc"] == "request.abc"
+
+
 async def test_unknown_operation_is_422(server: Server) -> None:
     response = await server.create(operation="song.cover")
     assert response.status_code == 422

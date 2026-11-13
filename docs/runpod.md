@@ -31,7 +31,7 @@ Run these from the repo root.
 ```bash
 make build-worker                                   # [not run] builds studio-worker:<version>, target yue2
 IMAGE=ghcr.io/<you>/studio-worker make build-worker # [not run] same, with your registry name
-docker push ghcr.io/<you>/studio-worker:0.1.0       # [not run]
+docker push ghcr.io/<you>/studio-worker:0.1.1       # [not run]
 ```
 
 - `make build-worker` was run by the agent. It stops at `docker build` because Docker is not

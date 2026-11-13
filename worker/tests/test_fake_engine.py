@@ -73,6 +73,18 @@ def test_no_score_when_cot_is_off(tmp_path: Path) -> None:
     assert "score.abc" not in names
 
 
+@pytest.mark.parametrize("staged", [True, False])
+def test_a_supplied_score_is_used_verbatim(tmp_path: Path, staged: bool) -> None:
+    score = "X:1\nK:D\n|: d2 fd A2 FA :|\n"
+    p = params(cot="melody", abc=score)
+    if staged:
+        run_staged(FakeEngine(), p, tmp_path)
+    else:
+        FakeEngine(staged=False).generate(p, tmp_path)
+    assert (tmp_path / "score.abc").read_text(encoding="utf-8") == score
+    assert json.loads((tmp_path / "request.json").read_text())["abc"] == score
+
+
 def test_load_hooks() -> None:
     engine = FakeEngine(load_error=RuntimeError("no BF16"))
     with pytest.raises(RuntimeError, match="BF16"):

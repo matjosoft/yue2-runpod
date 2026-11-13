@@ -1,6 +1,6 @@
 [project]
 name = "studio-contracts"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pydantic models, error codes and enums shared by the Studio worker and server"
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.11"]
